@@ -38,6 +38,26 @@ jobs:
         run: |
           ./venv/bin/pip list
           ./venv/bin/pip show jobspy
+          
+      - name: Verify jobspy installation and Debug Paths
+        run: |
+          echo "--- 1. Current Working Directory Contents ---"
+          ls -F
+          
+          echo "--- 2. Venv Directory Contents ---"
+          ls -F venv
+          
+          echo "--- 3. Site-Packages Directory Contents (WHERE JOBSPY SHOULD BE) ---"
+          # Adjust the version number (3.11) if you change the Python version in setup-python
+          ls -F ./venv/lib/python3.11/site-packages/
+          
+          echo "--- 4. Full Pip Information for jobspy ---"
+          # This should show a 'Location:' pointing to the path we just listed above
+          ./venv/bin/pip show jobspy
+          
+      - name: Test jobspy import
+        run: |
+          ./venv/bin/python -c "import jobspy; print('jobspy imported successfully, version:', jobspy.__version__)"
 
       - name: Test jobspy import
         run: |
