@@ -22,6 +22,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-actions.txt
 
+      - name: List installed packages
+        run: |
+          pip list
+
+      - name: Test jobspy import
+        run: |
+          python -c "import jobspy; print(jobspy.__version__)"
+
       - name: Run refresh_s3_24h.py
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
