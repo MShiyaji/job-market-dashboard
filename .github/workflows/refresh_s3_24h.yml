@@ -16,26 +16,33 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          # Key Change 1: Set a cache key for the venv directory to speed up future runs.
+          cache: 'pip'
 
-      # --- Key Change: Explicitly use 'python -m pip' for maximum reliability. ---
+      # --- Key Change 2: Create and activate a virtual environment ---
+      - name: Create and Activate Venv
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          
+      # --- Key Change 3: Use the activated environment for all subsequent commands ---
       - name: Install dependencies
         run: |
-          # Upgrade pip first
-          python -m pip install --upgrade pip
-          # Install all dependencies from the requirements file
-          python -m pip install -r requirements-actions.txt
-          # The debug step 'Install jobspy directly' is now unnecessary and removed.
+          # Note: The 'source venv/bin/activate' only affects the shell of the previous step.
+          # For subsequent steps, we must run the commands in a way that uses the venv interpreter.
+          # The standard way to do this in GH Actions is to run all commands through the venv path.
+          ./venv/bin/python -m pip install --upgrade pip
+          ./venv/bin/pip install -r requirements-actions.txt
 
-      - name: List installed packages (Verify Installation Path)
-        # Use 'pip show' to get detailed info, including the installed location
+      - name: Verify jobspy installation
         run: |
-          python -m pip list
-          python -m pip show jobspy
+          ./venv/bin/pip list
+          ./venv/bin/pip show jobspy
 
       - name: Test jobspy import
-        # This uses the exact same Python executable as the install step.
         run: |
-          python -c "import jobspy; print('jobspy imported successfully, version:', jobspy.__version__)"
+          # Use the python executable *inside* the virtual environment
+          ./venv/bin/python -c "import jobspy; print('jobspy imported successfully, version:', jobspy.__version__)"
 
       - name: Run refresh_s3_24h.py
         env:
@@ -44,4 +51,5 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
         run: |
-          python scripts/refresh_s3_24h.py
+          # Final script execution uses the venv interpreter
+          ./venv/bin/python scripts/refresh_s3_24h.py
