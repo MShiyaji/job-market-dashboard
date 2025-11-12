@@ -27,16 +27,6 @@ jobs:
         run: |
           ./venv/bin/pip install --upgrade pip
           ./venv/bin/pip install -r requirements-actions.txt
-          
-      - name: Verify correct jobspy installation (Optional)
-        run: |
-          # The output here should now show the correct job scraper package info
-          ./venv/bin/pip show python-jobspy 
-
-      - name: Test jobspy import
-        # This will now succeed because python-jobspy installs the 'jobspy' module!
-        run: |
-          ./venv/bin/python -c "import jobspy; print('jobspy imported successfully, version:', jobspy.__version__)"
 
       - name: Run refresh_s3_24h.py
         env:
