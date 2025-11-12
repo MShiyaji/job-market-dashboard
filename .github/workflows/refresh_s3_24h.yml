@@ -2,8 +2,8 @@ name: Run refresh_s3_24h.py daily
 
 on:
   schedule:
-    - cron: '0 7 * * *'  # Runs at 12:00 AM UTC every day
-  workflow_dispatch:      # Allows manual trigger
+    - cron: '0 7 * * *'    # Runs at 7:00 AM UTC every day
+  workflow_dispatch:        # Allows manual trigger
 
 jobs:
   run-script:
@@ -17,22 +17,25 @@ jobs:
         with:
           python-version: '3.11'
 
+      # --- Key Change: Explicitly use 'python -m pip' for maximum reliability. ---
       - name: Install dependencies
         run: |
+          # Upgrade pip first
           python -m pip install --upgrade pip
+          # Install all dependencies from the requirements file
           python -m pip install -r requirements-actions.txt
+          # The debug step 'Install jobspy directly' is now unnecessary and removed.
 
-      - name: Install jobspy directly (debug)
-        run: |
-          python -m pip install --verbose jobspy==0.31.0
-
-      - name: List installed packages
+      - name: List installed packages (Verify Installation Path)
+        # Use 'pip show' to get detailed info, including the installed location
         run: |
           python -m pip list
+          python -m pip show jobspy
 
       - name: Test jobspy import
+        # This uses the exact same Python executable as the install step.
         run: |
-          python -c "import jobspy; print(jobspy.__version__)"
+          python -c "import jobspy; print('jobspy imported successfully, version:', jobspy.__version__)"
 
       - name: Run refresh_s3_24h.py
         env:
