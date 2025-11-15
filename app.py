@@ -10,6 +10,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from dotenv import load_dotenv
 import numpy as np
 from sklearn.linear_model import LinearRegression
+import re
 # Import custom modules
 from scraper import JobScraper
 from data_processor import DataProcessor
@@ -17,6 +18,22 @@ from data_processor import DataProcessor
 
 # Load environment variables (for AWS credentials and bucket)
 load_dotenv()
+
+# --- Education helpers ------------------------------------------------------
+def extract_highest_degree(text: str | None) -> str | None:
+    if not isinstance(text, str):
+        return None
+    t = text.lower()
+    # Order matters: PhD > Master's > Bachelor's
+    if re.search(r"\b(ph\.?d|doctorate|doctoral)\b", t):
+        return "PhD"
+    if re.search(r"graduate level", t):
+        return "Master's"
+    if re.search(r"\b(master['’`s]*|m\.sc\.|msc\b|m\.s\.|ms\b|graduate|grad)\b", t):
+        return "Master's"
+    if re.search(r"\b(bachelor['’`s]*|b\.sc\.|bsc\b|b\.s\.|bs\b)\b", t):
+        return "Bachelor's"
+    return None
 
 # --- S3 helpers -------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=300)
@@ -44,7 +61,6 @@ def read_csv_local(path: str) -> pd.DataFrame | None:
     except Exception as e:
         print(f"Local CSV load failed for {path}: {e}")
         return None
-
 def autoload_jobs_from_s3() -> bool:
     """Attempt to auto-load processed jobs from S3 into session_state."""
     bucket = os.getenv("S3_BUCKET_NAME")
@@ -64,36 +80,99 @@ page_icon="",
 layout="wide",
 initial_sidebar_state="expanded"
 )
-# Default Plotly config (avoid deprecated keyword args; control mode bar, zoom, logo)
-PLOTLY_CONFIG = {
-    "displaylogo": False,
-    "scrollzoom": True,
-}
-# Custom CSS
-st.markdown("""
-<style>
-.main-header {
-    font-size: 3rem;
-    font-weight: bold;
-    color: #1f77b4;
-    text-align: center;
-    margin-bottom: 2rem;
-}
-.metric-card {
-    background-color: #f0f2f6;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 0.5rem 0;
-}
-</style>
-""", unsafe_allow_html=True)
-# Initialize session state
+
+# Initialize session state FIRST
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 if 'jobs_df' not in st.session_state:
     st.session_state.jobs_df = None
 if 'matches_df' not in st.session_state:
     st.session_state.matches_df = None
+
+# Theme colors - Dark mode only
+bg_color = "#0E1117"
+secondary_bg = "#262730"
+text_color = "#FAFAFA"
+border_color = "#4A4A4A"
+accent_color = "#FFFFFF"
+chart_template = "plotly_dark"
+chart_colors = ["#FFFFFF", "#D3D3D3", "#A9A9A9", "#808080", "#696969"]
+
+# Default Plotly config
+PLOTLY_CONFIG = {
+    "displaylogo": False,
+    "scrollzoom": True,
+}
+
+# Helper function to style plotly charts with theme
+def style_chart(fig, title="", show_grid=True):
+    """Apply consistent theme styling to plotly charts with enhanced readability"""
+    fig.update_layout(
+        template=chart_template,
+        paper_bgcolor="rgba(0,0,0,0)",  # Transparent to match dashboard background
+        plot_bgcolor="rgba(0,0,0,0)",   # Transparent to match dashboard background
+        font=dict(color=text_color, family="Inter, -apple-system, BlinkMacSystemFont, sans-serif", size=12),
+        title=dict(
+            text=title, 
+            font=dict(size=20, color=accent_color, family="Inter, sans-serif"),
+            x=0.5,
+            xanchor='center',
+            pad=dict(b=15)
+        ),
+        xaxis=dict(
+            gridcolor=border_color if show_grid else "rgba(0,0,0,0)",
+            linecolor=border_color,
+            showgrid=show_grid,
+            zeroline=False,
+            tickfont=dict(size=11)
+        ),
+        yaxis=dict(
+            gridcolor=border_color if show_grid else "rgba(0,0,0,0)",
+            linecolor=border_color,
+            showgrid=show_grid,
+            zeroline=False,
+            tickfont=dict(size=11)
+        ),
+        colorway=chart_colors,
+        margin=dict(l=20, r=20, t=60, b=40),
+        hovermode='closest',
+        hoverlabel=dict(
+            bgcolor=secondary_bg,
+            font_size=12,
+            font_family="Inter, sans-serif"
+        )
+    )
+    return fig
+
+# Custom CSS with theme support
+st.markdown(f"""
+<style>
+.main-header {{
+    font-size: 3rem;
+    font-weight: bold;
+    color: {accent_color};
+    text-align: center;
+    margin-bottom: 2rem;
+}}
+.metric-card {{
+    background-color: {secondary_bg};
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin: 0.5rem 0;
+    border: 1px solid {border_color};
+}}
+.stApp {{
+    background-color: {bg_color};
+    color: {text_color};
+}}
+[data-testid="stMetricValue"] {{
+    color: {text_color};
+}}
+[data-testid="stMetricLabel"] {{
+    color: {text_color};
+}}
+</style>
+""", unsafe_allow_html=True)
 # Always try to autoload from S3 on app start
 loaded = autoload_jobs_from_s3()
 if not loaded and not st.session_state.data_loaded:
@@ -107,65 +186,12 @@ if not loaded and not st.session_state.data_loaded:
         else:
             print("Local fallback load failed or returned empty dataframe")
 # Main title
-st.markdown('<p> Data Science Job Market Dashboard</p>', 
+st.markdown('<h1 style="text-align: center; font-weight: bold; font-size: 3.5rem; margin-bottom: 2rem;"> Data Science Job Market Dashboard</h1>', 
         unsafe_allow_html=True)
 # Sidebar
-st.sidebar.title(" Dashboard Controls")
-# Data loading section
-st.sidebar.header("1. Data Management")
-if st.sidebar.button(" Scrape New Jobs"):
-    with st.spinner("Scraping job boards... This may take several minutes"):
-        scraper = JobScraper(
-            search_terms=["data scientist", "machine learning engineer"],
-            locations=["San Francisco, CA", "Remote"],
-            results_per_site=500  # Comprehensive coverage for 30 days
-        )
-        jobs = scraper.scrape_jobs()
-        scraper.save_jobs()
-        
-        # Process data
-        processor = DataProcessor('data/raw_jobs.csv')
-        processed = processor.process_all()
-        processor.save_processed_data()
-        
-        st.sidebar.success(f"✅ Scraped {len(jobs)} jobs!")
-if st.sidebar.button(" Load Existing Data"):
-    try:
-        st.session_state.jobs_df = pd.read_csv('data/processed_jobs.csv')
-        st.session_state.data_loaded = True
-        st.sidebar.success(f"✅ Loaded {len(st.session_state.jobs_df)} jobs!")
-    except FileNotFoundError:
-        st.sidebar.error("No data file found. Please scrape jobs first.")
-# Resume analysis section
-st.sidebar.header("2. Resume Analysis")
-uploaded_resume = st.sidebar.file_uploader(
-"Upload Your Resume (PDF)",
-type=['pdf'],
-help="Upload your resume to get personalized job match insights"
-)
-if uploaded_resume:
-    # Save uploaded file
-    with open('data/resume.pdf', 'wb') as f:
-        f.write(uploaded_resume.getbuffer())
-    st.sidebar.success("✅ Resume uploaded!")
-if st.sidebar.button(" Analyze Resume Fit") and st.session_state.data_loaded:
-    if os.path.exists('data/resume.pdf'):
-        with st.spinner("Analyzing your fit for jobs using Gemini AI..."):
-            try:
-                from resume_analyzer import ResumeAnalyzer
-                analyzer = ResumeAnalyzer('data/resume.pdf')
-                matches = analyzer.analyze_job_market_fit(
-                    st.session_state.jobs_df,
-                    sample_size=15
-                )
-                st.session_state.matches_df = matches
-                matches.to_csv('data/job_matches.csv', index=False)
-                st.sidebar.success("✅ Analysis complete!")
-            except Exception as e:
-                st.sidebar.error(f"Resume analyzer unavailable: {e}")
-                st.sidebar.info("Install dependencies and set GEMINI_API_KEY in .env to enable this feature.")
-    else:
-        st.sidebar.error("Please upload a resume first!")
+st.sidebar.markdown("---")
+st.sidebar.title("Dashboard Controls")
+
 # Main dashboard content
 # If no data is loaded yet, show a welcome screen and stop executing the rest of the app
 if not st.session_state.data_loaded:
@@ -223,8 +249,23 @@ def categorize_job_title(title):
 if 'title' in df.columns:
     df['role_category'] = df['title'].apply(categorize_job_title)
 
+# Derive highest education requirement if not present
+if 'education_level' not in df.columns:
+    edu_source = None
+    for c in ['requirements', 'description', 'job_description', 'full_description', 'posting_text']:
+        if c in df.columns:
+            edu_source = c
+            break
+    if edu_source:
+        try:
+            df['education_level'] = df[edu_source].apply(extract_highest_degree)
+        except Exception:
+            df['education_level'] = None
+    else:
+        df['education_level'] = None
+
 # Filters
-st.sidebar.header("3. Filters")
+st.sidebar.header("Filters")
 
 # Normalize job type values to four canonical options for consistent filtering
 def _normalize_job_type(val):
@@ -251,9 +292,39 @@ if 'job_type' in df.columns:
 else:
     df['job_type_norm'] = None
 
-# Location filter
+# Location filter with metro areas
+# Define metro area groupings
+METRO_AREAS = {
+    'San Francisco Bay Area': ['San Francisco, CA', 'San Jose, CA', 'Oakland, CA', 'Palo Alto, CA', 
+                                'Mountain View, CA', 'Sunnyvale, CA', 'Santa Clara, CA', 'Fremont, CA',
+                                'Berkeley, CA', 'Redwood City, CA', 'Cupertino, CA', 'Menlo Park, CA'],
+    'Dallas-Fort Worth': ['Dallas, TX', 'Fort Worth, TX', 'Arlington, TX', 'Plano, TX', 
+                          'Irving, TX', 'Frisco, TX', 'McKinney, TX', 'Denton, TX'],
+    'New York Metro': ['New York, NY', 'Brooklyn, NY', 'Queens, NY', 'Manhattan, NY', 
+                       'Bronx, NY', 'Jersey City, NJ', 'Newark, NJ', 'Hoboken, NJ'],
+    'Los Angeles Metro': ['Los Angeles, CA', 'Long Beach, CA', 'Anaheim, CA', 'Irvine, CA',
+                          'Santa Ana, CA', 'Pasadena, CA', 'Glendale, CA', 'Burbank, CA'],
+    'Seattle Metro': ['Seattle, WA', 'Bellevue, WA', 'Redmond, WA', 'Tacoma, WA', 
+                      'Kirkland, WA', 'Everett, WA', 'Renton, WA'],
+    'Boston Metro': ['Boston, MA', 'Cambridge, MA', 'Somerville, MA', 'Quincy, MA', 
+                     'Newton, MA', 'Brookline, MA', 'Waltham, MA'],
+    'Chicago Metro': ['Chicago, IL', 'Naperville, IL', 'Aurora, IL', 'Evanston, IL',
+                      'Schaumburg, IL', 'Joliet, IL', 'Arlington Heights, IL'],
+    'Washington DC Metro': ['Washington, DC', 'Arlington, VA', 'Alexandria, VA', 'Bethesda, MD',
+                            'Silver Spring, MD', 'Rockville, MD', 'Fairfax, VA']
+}
+
 locations = ['All'] + sorted(df['location'].dropna().unique().tolist())
-selected_location = st.sidebar.selectbox("Location", locations)
+metro_options = ['Individual City'] + list(METRO_AREAS.keys())
+
+location_type = st.sidebar.selectbox("Location Type", metro_options, index=0)
+
+if location_type == 'Individual City':
+    selected_location = st.sidebar.selectbox("Location", locations)
+    selected_metro = None
+else:
+    selected_location = None
+    selected_metro = location_type
 
 # Job type filter (restricted to four options)
 allowed_job_types = ['fulltime', 'internship', 'part-time', 'contract']
@@ -265,30 +336,51 @@ selected_job_type = st.sidebar.selectbox("Job Type", job_types, index=0,
 remote_only = st.sidebar.checkbox("Remote Only")
 
 # Experience filter
-exp_levels = ['All', 'Entry / New Grad (0-1 yrs)', 'Mid-Level (2-4 yrs)']
+exp_levels = ['All', 'New Grad (0 yrs)', 'Entry Level (0-2 yrs)', 'Mid-Level (3-5 yrs)']
 selected_exp = st.sidebar.selectbox("Experience Level", exp_levels)
 
 # Role filter
 roles = ['All'] + sorted(df['role_category'].dropna().unique().tolist())
-selected_role = st.sidebar.selectbox("Role", roles)
+selected_role = st.sidebar.selectbox("Job Title", roles)
+
+# Education filter
+edu_levels = ["All", "Bachelor's", "Master's", "PhD"]
+selected_edu = st.sidebar.selectbox(
+    "Education Requirement",
+    edu_levels,
+    index=0,
+    help="Filter by the highest degree mentioned in the posting"
+)
 
 # Apply filters
 filtered_df = df.copy()
-if selected_location != 'All':
+
+# Apply location filter (individual city or metro area)
+if selected_location and selected_location != 'All':
     filtered_df = filtered_df[filtered_df['location'] == selected_location]
+elif selected_metro:
+    metro_cities = METRO_AREAS[selected_metro]
+    filtered_df = filtered_df[filtered_df['location'].isin(metro_cities)]
+
 if selected_job_type != 'All':
     # Use normalized job type for reliable matching
     filtered_df = filtered_df[filtered_df.get('job_type_norm').fillna('') == selected_job_type]
 if remote_only:
     filtered_df = filtered_df[filtered_df['is_remote'] == True]
 
+# Apply education level filter
+if selected_edu != 'All':
+    filtered_df = filtered_df[filtered_df.get('education_level').fillna('') == selected_edu]
+
 # Apply experience level filter (if available)
 if 'years_experience_required' in filtered_df.columns and selected_exp != 'All':
     years = pd.to_numeric(filtered_df['years_experience_required'], errors='coerce')
-    if selected_exp.startswith('Entry'):
-        filtered_df = filtered_df[years <= 1]
-    elif selected_exp.startswith('Mid-Level'):
-        filtered_df = filtered_df[(years >= 2) & (years <= 4)]
+    if selected_exp == 'New Grad (0 yrs)':
+        filtered_df = filtered_df[years == 0]
+    elif selected_exp == 'Entry Level (0-2 yrs)':
+        filtered_df = filtered_df[years <= 2]
+    elif selected_exp == 'Mid-Level (3-5 yrs)':
+        filtered_df = filtered_df[(years >= 3) & (years <= 5)]
 
 # Apply role filter
 if selected_role != 'All':
@@ -299,7 +391,10 @@ st.header(" Key Metrics")
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric("Total Jobs", len(filtered_df))
+    total_jobs = len(df)
+    filtered_jobs = len(filtered_df)
+    pct_of_total = (filtered_jobs / total_jobs * 100) if total_jobs > 0 else 0
+    st.metric("% of Total Jobs", f"{pct_of_total:.1f}%")
 with col2:
     st.metric("Unique Companies", filtered_df['company'].nunique())
 with col3:
@@ -311,11 +406,11 @@ with col4:
 
 # Tabs for different views
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Market Trends",
-    "💰 Salary Analysis",
-    "🛠️ Skills Demand",
-    "🤖 AI Insights",
-    "📈 Role Analytics"
+    "Market Trends",
+    "Salary Analysis",
+    "Skills Demand",
+    "AI Insights",
+    "Role Analytics"
 ])
 
 with tab1:
@@ -328,31 +423,63 @@ with tab1:
         location_counts = filtered_df['location'].value_counts().head(10)
         total_jobs = len(filtered_df)
         location_pct = (location_counts / total_jobs * 100).round(2)
-        fig = px.bar(
+        
+        # Create gradient colors from dark to light based on values
+        colors = [f'rgba({int(26 + (i/len(location_pct)) * 229)}, {int(26 + (i/len(location_pct)) * 229)}, {int(26 + (i/len(location_pct)) * 229)}, 0.9)' 
+                  for i in range(len(location_pct))]
+        
+        fig = go.Figure(data=[go.Bar(
             x=location_pct.values,
             y=location_pct.index,
             orientation='h',
-            title="Top 10 Locations",
-            labels={'x': '% of Total Jobs', 'y': 'Location'}
+            marker=dict(
+                color=location_pct.values,
+                colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                line=dict(width=0),
+                cornerradius=5
+            ),
+            hovertemplate='<b>%{y}</b><br>%{x:.1f}% of jobs<extra></extra>',
+            text=[f'{val:.1f}%' for val in location_pct.values],
+            textposition='inside',
+            textfont=dict(color='#FFFFFF', size=11, family='Inter')
+        )])
+        
+        fig = style_chart(fig, "Top 10 Locations", show_grid=False)
+        fig.update_layout(
+            height=450,
+            yaxis=dict(categoryorder='total ascending'),
+            xaxis=dict(ticksuffix='%', showgrid=False)
         )
-    fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
     
     with col2:
         company_counts = filtered_df['company'].value_counts().head(10)
         total_jobs = len(filtered_df)
         company_pct = (company_counts / total_jobs * 100).round(2)
-        fig = px.bar(
+        
+        fig = go.Figure(data=[go.Bar(
             x=company_pct.values,
             y=company_pct.index,
             orientation='h',
-            title="Top 10 Hiring Companies",
-            labels={'x': '% of Total Jobs', 'y': 'Company'}
+            marker=dict(
+                color=company_pct.values,
+                colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                line=dict(width=0),
+                cornerradius=5
+            ),
+            hovertemplate='<b>%{y}</b><br>%{x:.1f}% of jobs<extra></extra>',
+            text=[f'{val:.1f}%' for val in company_pct.values],
+            textposition='inside',
+            textfont=dict(color='#FFFFFF', size=11, family='Inter')
+        )])
+        
+        fig = style_chart(fig, "Top 10 Hiring Companies", show_grid=False)
+        fig.update_layout(
+            height=450,
+            yaxis=dict(categoryorder='total ascending'),
+            xaxis=dict(ticksuffix='%', showgrid=False)
         )
-    fig.update_layout(height=400, yaxis=dict(categoryorder="array", categoryarray=company_pct.index.tolist()))
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-    
-    # (Jobs posted over time chart removed per request)
+        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
 with tab2:
     st.subheader("Salary Analysis")
@@ -362,39 +489,59 @@ with tab2:
     
     if len(salary_data) > 0:
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            fig = px.histogram(
-                salary_data,
-                nbins=30,
-                title="Salary Distribution",
-                labels={'value': 'Salary ($)', 'count': 'Frequency'}
+            fig = go.Figure(data=[go.Histogram(
+                x=salary_data,
+                nbinsx=30,
+                marker=dict(
+                    color=salary_data,
+                    colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                    line=dict(width=0.5, color=border_color)
+                ),
+                hovertemplate='$%{x:,.0f}<br>Count: %{y}<extra></extra>'
+            )])
+            
+            fig = style_chart(fig, "Salary Distribution", show_grid=False)
+            fig.update_xaxes(tickprefix='$', tickformat=',.0f')
+            fig.update_layout(
+                xaxis_title='Salary ($)',
+                yaxis_title='Frequency',
+                bargap=0.05
             )
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-        
+
         with col2:
-            fig = px.box(
-                filtered_df,
-                y='average_salary',
-                title="Salary Box Plot",
-                labels={'average_salary': 'Salary ($)'}
+            # Salary by role category (sorted highest to lowest)
+            salary_by_role = (
+                filtered_df.groupby('role_category')['average_salary']
+                .mean()
+                .sort_values(ascending=False)
+            )
+            
+            fig = go.Figure(data=[go.Bar(
+                x=salary_by_role.values,
+                y=salary_by_role.index,
+                orientation='h',
+                marker=dict(
+                    color=salary_by_role.values,
+                    colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                    line=dict(width=0),
+                    cornerradius=5,
+                    showscale=False
+                ),
+                hovertemplate='<b>%{y}</b><br>$%{x:,.0f}<extra></extra>',
+                text=[f'${val:,.0f}' for val in salary_by_role.values],
+                textposition='inside',
+                textfont=dict(color='#FFFFFF', size=11, family='Inter')
+            )])
+            
+            fig = style_chart(fig, "Average Salary by Role", show_grid=False)
+            fig.update_layout(
+                yaxis=dict(categoryorder='total ascending'),
+                xaxis=dict(tickprefix='$', tickformat=',.0f', showgrid=False)
             )
             st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-        
-        # Salary by job title (sorted highest to lowest)
-        salary_by_title = (
-            filtered_df.groupby('search_term')['average_salary']
-            .mean()
-            .sort_values(ascending=False)
-        )
-        fig = px.bar(
-            x=salary_by_title.values,
-            y=salary_by_title.index,
-            orientation='h',
-            title="Average Salary by Job Title",
-            labels={'x': 'Average Salary ($)', 'y': 'Job Title'}
-        )
-        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
     else:
         st.warning("No salary data available in filtered results")
 
@@ -421,16 +568,31 @@ with tab3:
         top_n = 15
         top_skills = dict(list(skill_demand_sorted.items())[:top_n])
 
-        fig = px.bar(
+        fig = go.Figure(data=[go.Bar(
             x=list(top_skills.values()),
             y=list(top_skills.keys()),
             orientation='h',
-            title=(f"Top {top_n} Skills - {selected_role}" if selected_role != 'All' else f"Top {top_n} In-Demand Skills"),
-            labels={'x': '% of Jobs Requiring Skill', 'y': 'Skill'},
-            color=list(top_skills.values()),
-            color_continuous_scale='Blues'
+            marker=dict(
+                color=list(top_skills.values()),
+                colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                line=dict(width=0),
+                cornerradius=5,
+                showscale=False
+            ),
+            hovertemplate='<b>%{y}</b><br>%{x:.1f}% of jobs<extra></extra>',
+            text=[f'{val:.1f}%' for val in top_skills.values()],
+            textposition='inside',
+            textfont=dict(color='#FFFFFF', size=11, family='Inter')
+        )])
+        
+        title_text = f"Top {top_n} Skills - {selected_role}" if selected_role != 'All' else f"Top {top_n} In-Demand Skills"
+        fig = style_chart(fig, title_text, show_grid=False)
+        fig.update_layout(
+            height=550,
+            showlegend=False,
+            yaxis=dict(categoryorder='total ascending'),
+            xaxis=dict(ticksuffix='%', showgrid=False)
         )
-        fig.update_layout(height=500, showlegend=False)
         st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
 
         # Skills co-occurrence (within the selected role scope)
@@ -455,8 +617,87 @@ with tab3:
     else:
         st.warning("No skill data available for this selection")
 
+    # Education requirement mix over time
+    st.markdown("### 2) Education Requirements Trend")
+    if 'date_posted' in filtered_df.columns and 'education_level' in filtered_df.columns:
+        edu_trend_df = filtered_df.copy()
+        edu_trend_df['date_posted'] = pd.to_datetime(edu_trend_df['date_posted'], errors='coerce')
+        edu_trend_df = edu_trend_df.dropna(subset=['date_posted', 'education_level'])
+
+        # Focus trend view on the current market window
+        start_date = datetime(2025, 10, 1)
+        edu_trend_df = edu_trend_df[edu_trend_df['date_posted'] >= start_date]
+
+        if len(edu_trend_df) > 0:
+            edu_trend_df['date'] = edu_trend_df['date_posted'].dt.date
+            daily_counts = (
+                edu_trend_df
+                .groupby(['date', 'education_level'])
+                .size()
+                .reset_index(name='count')
+            )
+            daily_totals = (
+                edu_trend_df
+                .groupby('date')
+                .size()
+                .reset_index(name='total')
+            )
+            # Sort by date for cumulative calculations
+            daily_counts = daily_counts.sort_values('date')
+            daily_totals = daily_totals.sort_values('date')
+            
+            # Compute cumulative counts per education level
+            daily_counts['cum_count'] = daily_counts.groupby('education_level')['count'].cumsum()
+            
+            # Compute cumulative total jobs
+            daily_totals['cum_total'] = daily_totals['total'].cumsum()
+            
+            # Merge cumulative data
+            edu_trend = daily_counts.merge(daily_totals[['date', 'cum_total']], on='date')
+            edu_trend['percentage'] = edu_trend['cum_count'] / edu_trend['cum_total'] * 100
+            edu_trend['date'] = pd.to_datetime(edu_trend['date'])
+
+            # Create figure with go.Scatter for each education level
+            fig_edu = go.Figure()
+            
+            edu_levels = ["Bachelor's", "Master's", "PhD"]
+            colors_map = {edu_levels[i]: chart_colors[i] for i in range(len(edu_levels))}
+            
+            for edu_level in edu_levels:
+                edu_data = edu_trend[edu_trend['education_level'] == edu_level]
+                fig_edu.add_trace(go.Scatter(
+                    x=edu_data['date'],
+                    y=edu_data['percentage'],
+                    mode='lines+markers',
+                    name=edu_level,
+                    line=dict(width=3, color=colors_map.get(edu_level, chart_colors[0])),
+                    marker=dict(size=7, line=dict(width=1, color=bg_color)),
+                    hovertemplate=f'<b>{edu_level}</b><br>%{{x|%b %d}}<br>%{{y:.1f}}%<extra></extra>',
+                    fill='tonexty' if edu_level != "Bachelor's" else None,
+                    fillcolor=f'rgba({int(colors_map.get(edu_level, chart_colors[0])[1:3], 16)}, {int(colors_map.get(edu_level, chart_colors[0])[3:5], 16)}, {int(colors_map.get(edu_level, chart_colors[0])[5:7], 16)}, 0.1)'
+                ))
+            
+            fig_edu = style_chart(fig_edu, 'Cumulative Education Requirement Mix Over Time')
+            fig_edu.update_layout(
+                height=450,
+                legend=dict(
+                    title='Highest Degree',
+                    orientation='h',
+                    yanchor='bottom',
+                    y=1.02,
+                    xanchor='right',
+                    x=1
+                )
+            )
+            fig_edu.update_yaxes(range=[0, 100], ticksuffix='%')
+            st.plotly_chart(fig_edu, use_container_width=True, config=PLOTLY_CONFIG)
+        else:
+            st.info("No education data available to plot trends since Oct 2025.")
+    else:
+        st.info("Education or date data missing; unable to show education trend chart.")
+
     # Hot skills: skills increasing in frequency the most
-    st.markdown("### 2) Hot Skills (Rising Fast)")
+    st.markdown("### 3) Hot Skills (Rising Fast)")
     if 'date_posted' in filtered_df.columns:
         df_dates = filtered_df.copy()
         df_dates['date_posted'] = pd.to_datetime(df_dates['date_posted'], errors='coerce')
@@ -509,14 +750,30 @@ with tab3:
                     plot_cols = [f'skill_{n}' for n in top_skills_names]
                     melted = daily_pct[plot_cols].reset_index().melt(id_vars='date', var_name='skill', value_name='percentage')
                     melted['skill'] = melted['skill'].str.replace('skill_', '', regex=False)
-                    fig_trend = px.line(
-                        melted,
-                        x='date', y='percentage', color='skill',
-                        title='Top Trending Skills - % of Jobs (Last 30 Days)', markers=True,
-                        labels={'date': 'Date', 'percentage': '% of Jobs', 'skill': 'Skill'},
-                        category_orders={'skill': top_skills_names}
+                    
+                    # Create figure with go.Scatter
+                    fig_trend = go.Figure()
+                    for i, skill in enumerate(top_skills_names):
+                        skill_data = melted[melted['skill'] == skill]
+                        fig_trend.add_trace(go.Scatter(
+                            x=skill_data['date'],
+                            y=skill_data['percentage'],
+                            mode='lines+markers',
+                            name=skill,
+                            line=dict(width=3, color=chart_colors[i % len(chart_colors)]),
+                            marker=dict(size=7, line=dict(width=1, color=bg_color)),
+                            hovertemplate=f'<b>{skill}</b><br>%{{x|%b %d}}<br>%{{y:.1f}}%<extra></extra>',
+                            fill='tonexty' if i > 0 else None,
+                            fillcolor=f'rgba({int(chart_colors[i % len(chart_colors)][1:3], 16)}, {int(chart_colors[i % len(chart_colors)][3:5], 16)}, {int(chart_colors[i % len(chart_colors)][5:7], 16)}, 0.1)'
+                        ))
+                    
+                    fig_trend = style_chart(fig_trend, 'Top Trending Skills - % of Jobs (Last 30 Days)')
+                    fig_trend.update_layout(
+                        height=450,
+                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                     )
                     fig_trend.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
+                    fig_trend.update_yaxes(ticksuffix='%')
                     st.plotly_chart(fig_trend, use_container_width=True, config=PLOTLY_CONFIG)
                 else:
                     st.info("Not enough recent data to identify trending skills.")
@@ -528,7 +785,7 @@ with tab3:
         st.info("Dataset lacks 'date_posted' column; cannot compute trends.")
 
     # Falling skills: skills declining in frequency the most
-    st.markdown("### 3) Cooling Skills (Declining Fast)")
+    st.markdown("### 4) Cooling Skills (Declining Fast)")
     if 'date_posted' in filtered_df.columns:
         df_dates = filtered_df.copy()
         df_dates['date_posted'] = pd.to_datetime(df_dates['date_posted'], errors='coerce')
@@ -582,13 +839,31 @@ with tab3:
                     plot_cols_decline = [f'skill_{n}' for n in top_declining_names]
                     melted_decline = daily_pct[plot_cols_decline].reset_index().melt(id_vars='date', var_name='skill', value_name='percentage')
                     melted_decline['skill'] = melted_decline['skill'].str.replace('skill_', '', regex=False)
-                    fig_decline = px.line(
-                        melted_decline,
-                        x='date', y='percentage', color='skill',
-                        title='Top Declining Skills - % of Jobs (Last 30 Days)', markers=True,
-                        labels={'date': 'Date', 'percentage': '% of Jobs', 'skill': 'Skill'}
+                    
+                    # Create figure with go.Scatter
+                    fig_decline = go.Figure()
+                    declining_skills = melted_decline['skill'].unique()
+                    for i, skill in enumerate(declining_skills):
+                        skill_data = melted_decline[melted_decline['skill'] == skill]
+                        fig_decline.add_trace(go.Scatter(
+                            x=skill_data['date'],
+                            y=skill_data['percentage'],
+                            mode='lines+markers',
+                            name=skill,
+                            line=dict(width=3, color=chart_colors[i % len(chart_colors)]),
+                            marker=dict(size=7, line=dict(width=1, color=bg_color)),
+                            hovertemplate=f'<b>{skill}</b><br>%{{x|%b %d}}<br>%{{y:.1f}}%<extra></extra>',
+                            fill='tonexty' if i > 0 else None,
+                            fillcolor=f'rgba({int(chart_colors[i % len(chart_colors)][1:3], 16)}, {int(chart_colors[i % len(chart_colors)][3:5], 16)}, {int(chart_colors[i % len(chart_colors)][5:7], 16)}, 0.1)'
+                        ))
+                    
+                    fig_decline = style_chart(fig_decline, 'Top Declining Skills - % of Jobs (Last 30 Days)')
+                    fig_decline.update_layout(
+                        height=450,
+                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
                     )
                     fig_decline.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
+                    fig_decline.update_yaxes(ticksuffix='%')
                     st.plotly_chart(fig_decline, use_container_width=True, config=PLOTLY_CONFIG)
                 else:
                     st.info("Not enough recent data to identify declining skills.")
@@ -602,86 +877,150 @@ with tab3:
 with tab4:
     st.subheader(" AI-Powered Insights")
     
-    if st.session_state.matches_df is not None:
-        matches_df = st.session_state.matches_df
-        
-        # Overall match statistics
-        st.markdown("### Your Job Market Fit")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        avg_match = matches_df['match_percentage'].mean()
-        good_matches = (matches_df['match_percentage'] >= 70).sum()
-        
-        with col1:
-            st.metric("Average Match Score", f"{avg_match:.1f}%")
-        with col2:
-            st.metric("Strong Fits (70%+)", f"{good_matches}/{len(matches_df)}")
-        with col3:
-            top_match = matches_df['match_percentage'].max()
-            st.metric("Best Match", f"{top_match:.0f}%")
-        
-        # Match distribution
-        fig = px.histogram(
-            matches_df,
-            x='match_percentage',
-            nbins=20,
-            title="Distribution of Match Scores",
-            labels={'match_percentage': 'Match Percentage', 'count': 'Number of Jobs'}
-        )
-        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-        
-        # Top matches
-        st.markdown("### Your Best Job Matches")
-        top_matches = matches_df.nlargest(5, 'match_percentage')
-        
-        for idx, row in top_matches.iterrows():
-            with st.expander(f" {row['job_title']} at {row['company']} - {row['match_percentage']:.0f}% Match"):
-                st.write(f"**Location:** {row['location']}")
-                if pd.notna(row.get('salary')):
-                    st.write(f"**Salary:** ${row['salary']:,.0f}")
-                st.write(f"**Matched Skills:** {', '.join(row['matched_skills']) if isinstance(row['matched_skills'], list) else 'N/A'}")
-                st.write(f"**Skills to Develop:** {', '.join(row['missing_skills']) if isinstance(row['missing_skills'], list) else 'N/A'}")
-                st.write(f"**AI Analysis:** {row['explanation']}")
-        
-        # Skill gap analysis
-        st.markdown("### Skill Gap Analysis")
-        
-        all_missing = []
-        for skills_list in matches_df['missing_skills']:
-            if isinstance(skills_list, list):
-                all_missing.extend(skills_list)
-        
-        if all_missing:
-            from collections import Counter
-            missing_counts = Counter(all_missing)
-            top_missing = dict(missing_counts.most_common(10))
-            
-            fig = px.bar(
-                x=list(top_missing.values()),
-                y=list(top_missing.keys()),
-                orientation='h',
-                title="Skills You Should Develop",
-                labels={'x': 'Frequency in Job Postings', 'y': 'Skill'},
-                color=list(top_missing.values()),
-                color_continuous_scale='Reds'
-            )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-        
-        # Generate personalized insights
-        if st.button("Generate Personalized Career Advice"):
-            with st.spinner("Generating insights with Gemini AI..."):
+    # Resume upload and analysis section
+    st.markdown("### Upload Your Resume")
+    uploaded_resume = st.file_uploader(
+        "Upload Your Resume (PDF)",
+        type=['pdf'],
+        help="Upload your resume to get personalized job match insights"
+    )
+    
+    if uploaded_resume:
+        # Save uploaded file
+        with open('data/resume.pdf', 'wb') as f:
+            f.write(uploaded_resume.getbuffer())
+        st.success("✅ Resume uploaded!")
+    
+    if st.button(" Analyze Resume Fit", type="primary") and st.session_state.data_loaded:
+        if os.path.exists('data/resume.pdf'):
+            with st.spinner("Analyzing your fit for jobs using Gemini AI..."):
                 try:
                     from resume_analyzer import ResumeAnalyzer
                     analyzer = ResumeAnalyzer('data/resume.pdf')
-                    insights = analyzer.generate_insights(matches_df)
+                    matches = analyzer.analyze_job_market_fit(
+                        st.session_state.jobs_df,
+                        sample_size=15
+                    )
+                    st.session_state.matches_df = matches
+                    matches.to_csv('data/job_matches.csv', index=False)
+                    st.success("✅ Analysis complete!")
                 except Exception as e:
                     st.error(f"Resume analyzer unavailable: {e}")
                     st.info("Install dependencies and set GEMINI_API_KEY in .env to enable this feature.")
-                    insights = ""
+        else:
+            st.error("Please upload a resume first!")
+    
+    st.markdown("---")
+    
+    if st.session_state.matches_df is not None:
+        matches_df = st.session_state.matches_df
+        
+        if matches_df.empty or 'match_percentage' not in matches_df.columns:
+            st.warning("No valid match data available. The resume analysis may have failed.")
+            st.info("Try re-uploading your resume and running the analysis again.")
+        else:
+            # Overall match statistics
+            st.markdown("### Your Job Market Fit")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            avg_match = matches_df['match_percentage'].mean()
+            good_matches = (matches_df['match_percentage'] >= 70).sum()
+            
+            with col1:
+                st.metric("Average Match Score", f"{avg_match:.1f}%")
+            with col2:
+                st.metric("Strong Fits (70%+)", f"{good_matches}/{len(matches_df)}")
+            with col3:
+                top_match = matches_df['match_percentage'].max()
+                st.metric("Best Match", f"{top_match:.0f}%")
+            
+            # Match distribution
+            fig = go.Figure(data=[go.Histogram(
+                x=matches_df['match_percentage'],
+                nbinsx=20,
+                marker=dict(
+                    color=matches_df['match_percentage'],
+                    colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                    line=dict(width=0.5, color=border_color)
+                ),
+                hovertemplate='%{x:.0f}%<br>Jobs: %{y}<extra></extra>'
+            )])
+            
+            fig = style_chart(fig, "Distribution of Match Scores", show_grid=False)
+            fig.update_xaxes(ticksuffix='%')
+            fig.update_layout(
+                xaxis_title='Match Percentage',
+                yaxis_title='Number of Jobs',
+                bargap=0.05
+            )
+            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            
+            # Top matches
+            st.markdown("### Your Best Job Matches")
+            top_matches = matches_df.nlargest(5, 'match_percentage')
+            
+            for idx, row in top_matches.iterrows():
+                with st.expander(f" {row['job_title']} at {row['company']} - {row['match_percentage']:.0f}% Match"):
+                    st.write(f"**Location:** {row['location']}")
+                    if pd.notna(row.get('salary')):
+                        st.write(f"**Salary:** ${row['salary']:,.0f}")
+                    st.write(f"**Matched Skills:** {', '.join(row['matched_skills']) if isinstance(row['matched_skills'], list) else 'N/A'}")
+                    st.write(f"**Skills to Develop:** {', '.join(row['missing_skills']) if isinstance(row['missing_skills'], list) else 'N/A'}")
+                    st.write(f"**AI Analysis:** {row['explanation']}")
+            
+            # Skill gap analysis
+            st.markdown("### Skill Gap Analysis")
+            
+            all_missing = []
+            for skills_list in matches_df['missing_skills']:
+                if isinstance(skills_list, list):
+                    all_missing.extend(skills_list)
+            
+            if all_missing:
+                from collections import Counter
+                missing_counts = Counter(all_missing)
+                top_missing = dict(missing_counts.most_common(10))
                 
-                st.markdown("###  Personalized Recommendations")
-                st.markdown(insights)
+                fig = go.Figure(data=[go.Bar(
+                    x=list(top_missing.values()),
+                    y=list(top_missing.keys()),
+                    orientation='h',
+                    marker=dict(
+                        color=list(top_missing.values()),
+                        colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                        line=dict(width=0),
+                        cornerradius=5,
+                        showscale=False
+                    ),
+                    hovertemplate='<b>%{y}</b><br>Frequency: %{x}<extra></extra>',
+                    text=[f'{val}' for val in top_missing.values()],
+                    textposition='inside',
+                    textfont=dict(color='#FFFFFF', size=11, family='Inter')
+                )])
+                
+                fig = style_chart(fig, "Skills You Should Develop", show_grid=False)
+                fig.update_layout(
+                    yaxis=dict(categoryorder='total ascending'),
+                    showlegend=False,
+                    xaxis=dict(showgrid=False)
+                )
+                st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            
+            # Generate personalized insights
+            if st.button("Generate Personalized Career Advice"):
+                with st.spinner("Generating insights with Gemini AI..."):
+                    try:
+                        from resume_analyzer import ResumeAnalyzer
+                        analyzer = ResumeAnalyzer('data/resume.pdf')
+                        insights = analyzer.generate_insights(matches_df)
+                    except Exception as e:
+                        st.error(f"Resume analyzer unavailable: {e}")
+                        st.info("Install dependencies and set GEMINI_API_KEY in .env to enable this feature.")
+                        insights = ""
+                    
+                    st.markdown("###  Personalized Recommendations")
+                    st.markdown(insights)
     else:
         st.info("Upload your resume and click 'Analyze Resume Fit' in the sidebar to see insights.")
         
@@ -723,16 +1062,31 @@ with tab5:
             total_jobs = len(df_last_30)
             role_pct = (role_counts / total_jobs * 100).round(2)
             
-            fig1 = px.bar(
+            fig1 = go.Figure(data=[go.Bar(
                 x=role_pct.values,
                 y=role_pct.index,
                 orientation='h',
-                title=f"Top 15 Role Titles (Last 30 Days) - Total: {len(df_last_30)} Jobs",
-                labels={'x': '% of Total Jobs', 'y': 'Role Title'},
-                color=role_pct.values,
-                color_continuous_scale='Viridis'
+                marker=dict(
+                    color=role_pct.values,
+                    colorscale=[[0, '#1A1A1A'], [0.5, '#808080'], [1, '#FFFFFF']],
+                    line=dict(width=0),
+                    cornerradius=5,
+                    showscale=False
+                ),
+                hovertemplate='<b>%{y}</b><br>%{x:.1f}%<extra></extra>',
+                text=[f'{val:.1f}%' for val in role_pct.values],
+                textposition='inside',
+                textfont=dict(color='#FFFFFF', size=11, family='Inter')
+            )])
+            
+            title_text = f"Top 15 Role Titles (Last 30 Days) - Total: {len(df_last_30)} Jobs"
+            fig1 = style_chart(fig1, title_text, show_grid=False)
+            fig1.update_layout(
+                height=500,
+                showlegend=False,
+                yaxis=dict(categoryorder='total ascending'),
+                xaxis=dict(ticksuffix='%', showgrid=False)
             )
-            fig1.update_layout(height=500, showlegend=False)
             st.plotly_chart(fig1, use_container_width=True, config=PLOTLY_CONFIG)
             
             # Show stats
@@ -768,17 +1122,27 @@ with tab5:
             daily_role_counts = daily_role_counts.merge(daily_totals, on='date', how='left')
             daily_role_counts['percentage'] = (daily_role_counts['count'] / daily_role_counts['total'] * 100).round(2)
             
-            fig2 = px.line(
-                daily_role_counts,
-                x='date',
-                y='percentage',
-                color='title',
-                title="Daily Role Distribution - % of Jobs (Top 8 Roles)",
-                labels={'date': 'Date', 'percentage': '% of Jobs Posted', 'title': 'Role'},
-                markers=True
+            # Create figure with go.Scatter
+            fig2 = go.Figure()
+            for i, role in enumerate(top_roles):
+                role_data = daily_role_counts[daily_role_counts['title'] == role]
+                fig2.add_trace(go.Scatter(
+                    x=role_data['date'],
+                    y=role_data['percentage'],
+                    mode='lines+markers',
+                    name=role,
+                    line=dict(width=3, color=chart_colors[i % len(chart_colors)]),
+                    marker=dict(size=7, line=dict(width=1, color=bg_color)),
+                    hovertemplate=f'<b>{role}</b><br>%{{x|%b %d}}<br>%{{y:.1f}}%<extra></extra>'
+                ))
+            
+            fig2 = style_chart(fig2, "Daily Role Distribution - % of Jobs (Top 8 Roles)")
+            fig2.update_layout(
+                height=500,
+                legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
             )
-            fig2.update_layout(height=500)
             fig2.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
+            fig2.update_yaxes(ticksuffix='%')
             st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
             
             # Calculate growth rates
@@ -860,38 +1224,65 @@ with tab5:
                         # Combine historical and predicted
                         combined_df = pd.concat([historical_df, predictions_df], ignore_index=True)
                         
-                        # Plot
-                        fig3 = px.line(
-                            combined_df,
-                            x='date',
-                            y='cumulative',
-                            color='type',
-                            title=f"Cumulative Job Postings Forecast: {selected_role}",
-                            labels={'date': 'Date', 'cumulative': 'Cumulative Jobs', 'type': 'Data Type'},
-                            markers=True
-                        )
-                        fig3.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
+                        # Plot with go.Scatter
+                        fig3 = go.Figure()
+                        
+                        # Historical data
+                        hist_data = combined_df[combined_df['type'] == 'Historical']
+                        fig3.add_trace(go.Scatter(
+                            x=hist_data['date'],
+                            y=hist_data['cumulative'],
+                            mode='lines+markers',
+                            name='Historical',
+                            line=dict(width=3, color=accent_color),
+                            marker=dict(size=7, line=dict(width=1, color=bg_color)),
+                            hovertemplate='<b>Historical</b><br>%{x|%b %d}<br>Jobs: %{y:.0f}<extra></extra>'
+                        ))
+                        
+                        # Predicted data
+                        pred_data = combined_df[combined_df['type'] == 'Predicted']
+                        fig3.add_trace(go.Scatter(
+                            x=pred_data['date'],
+                            y=pred_data['cumulative'],
+                            mode='lines+markers',
+                            name='Predicted',
+                            line=dict(width=3, color=border_color, dash='dash'),
+                            marker=dict(size=7, line=dict(width=1, color=bg_color)),
+                            hovertemplate='<b>Predicted</b><br>%{x|%b %d}<br>Jobs: %{y:.0f}<extra></extra>'
+                        ))
                         
                         # Add confidence interval (simple approach)
-                        fig3.add_scatter(
+                        bound_color = 'rgba(128,128,128,0.3)'
+                        fig3.add_trace(go.Scatter(
                             x=predictions_df['date'],
                             y=future_predictions * 1.1,
                             mode='lines',
-                            line=dict(dash='dash', color='rgba(0,100,200,0.3)'),
+                            line=dict(dash='dot', color=bound_color, width=2),
                             name='Upper Bound (+10%)',
-                            showlegend=True
-                        )
+                            showlegend=True,
+                            hovertemplate='%{x|%b %d}<br>Jobs: %{y:.0f}<extra></extra>'
+                        ))
                         
-                        fig3.add_scatter(
+                        fig3.add_trace(go.Scatter(
                             x=predictions_df['date'],
                             y=future_predictions * 0.9,
                             mode='lines',
-                            line=dict(dash='dash', color='rgba(0,100,200,0.3)'),
+                            line=dict(dash='dot', color=bound_color, width=2),
                             name='Lower Bound (-10%)',
-                            showlegend=True
-                        )
+                            fill='tonexty',
+                            fillcolor=bound_color,
+                            showlegend=True,
+                            hovertemplate='%{x|%b %d}<br>Jobs: %{y:.0f}<extra></extra>'
+                        ))
                         
-                        fig3.update_layout(height=500)
+                        title_text = f"Cumulative Job Postings Forecast: {selected_role}"
+                        fig3 = style_chart(fig3, title_text)
+                        fig3.update_layout(
+                            height=500,
+                            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+                        )
+                        fig3.update_xaxes(range=[datetime(2025, 10, 1), datetime.now() + timedelta(days=30)])
+                        
                         st.plotly_chart(fig3, use_container_width=True, config=PLOTLY_CONFIG)
                         
                         # Prediction insights

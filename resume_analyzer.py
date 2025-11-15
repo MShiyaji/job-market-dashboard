@@ -1,5 +1,5 @@
 import fitz  # PyMuPDF
-from google import genai
+import google.generativeai as genai
 import os
 from dotenv import load_dotenv
 import json
@@ -22,7 +22,7 @@ class ResumeAnalyzer:
         if not api_key:
             raise ValueError("GEMINI_API_KEY not found in .env file")
         
-        self.client = genai.Client(api_key=api_key)
+        genai.configure(api_key=api_key)
     
     def extract_resume_text(self):
         """Extract text from PDF resume"""
@@ -59,10 +59,8 @@ class ResumeAnalyzer:
         """
         
         try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
-                contents=prompt
-            )
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            response = model.generate_content(prompt)
             
             # Parse JSON response
             result_text = response.text
@@ -117,10 +115,8 @@ class ResumeAnalyzer:
         """
         
         try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
-                contents=prompt
-            )
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            response = model.generate_content(prompt)
             
             result_text = response.text
             # Extract JSON
@@ -227,10 +223,8 @@ class ResumeAnalyzer:
         """
         
         try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
-                contents=insight_prompt
-            )
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            response = model.generate_content(insight_prompt)
             return response.text
         except Exception as e:
             print(f"Error generating insights: {e}")

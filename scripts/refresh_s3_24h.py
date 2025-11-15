@@ -2,7 +2,7 @@
 Repopulate the S3 bucket with newly scraped and processed jobs from the last 24 hours.
 
 Usage (PowerShell):
-  python scripts/refresh_s3_24h.py --search-terms "Data Scientist,Machine learning engineer,AI engineer,Data Analyst" --locations "United States,Remote" --results-per-site 400 --s3-prefix "" --timestamp
+  python scripts/refresh_s3_24h.py --search-terms "Data Scientist,Machine learning engineer,AI engineer,Data Analyst,Data Engineer" --locations "United States,Remote" --results-per-site 400 --s3-prefix "" --timestamp
 
 Environment variables (via .env):
   S3_BUCKET_NAME          - required
@@ -87,7 +87,7 @@ def _add_norm_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Repopulate S3 with scraped/processed job data from last 24 hours")
-    p.add_argument("--search-terms", default=os.getenv("SEARCH_TERMS", "Data Scientist,Machine learning engineer,AI engineer,Data Analyst"), help="Comma-separated search terms")
+    p.add_argument("--search-terms", default=os.getenv("SEARCH_TERMS", "Data Scientist,Machine learning engineer,AI engineer,Data Analyst,Data Engineer"), help="Comma-separated search terms")
     p.add_argument("--locations", default=os.getenv("LOCATIONS", "United States,Remote"), help="Comma-separated locations")
     p.add_argument("--results-per-site", type=int, default=int(os.getenv("RESULTS_PER_SITE", "400")), help="Max results per site (default: 400 for recent job analysis)")
     p.add_argument("--s3-prefix", default=os.getenv("S3_PREFIX", ""), help="Optional key prefix in S3 (e.g., 'jobs/')")
