@@ -1,0 +1,71 @@
+name: Historical Data Backfill (Hourly)
+
+on:
+  schedule:
+    # Run every hour to progressively backfill 30 days of data
+    - cron: '0 * * * *'  # Every hour at minute 0
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # Safety timeout for each run
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-actions.txt
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Download state file from previous run
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: backfill-state
+          path: data/
+
+      - name: Run backfill script
+        env:
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+          S3_RAW_KEY: ${{ secrets.S3_RAW_KEY }}
+          S3_PROCESSED_KEY: ${{ secrets.S3_PROCESSED_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          SEARCH_TERMS: "Data Scientist,Machine learning engineer,AI engineer,Data Analyst,Data Engineer"
+          LOCATIONS: "United States,Remote"
+          RESULTS_PER_SITE: "400"
+        run: |
+          python scripts/backfill_historical.py
+
+      - name: Save state for next run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backfill-state
+          path: data/backfill_state.json
+          retention-days: 7
+
+      - name: Check completion status
+        if: success()
+        run: |
+          if [ -f data/backfill_state.json ]; then
+            CURRENT=$(cat data/backfill_state.json | grep -o '"current_window":[0-9]*' | grep -o '[0-9]*')
+            TOTAL=$(cat data/backfill_state.json | grep -o '"total_windows":[0-9]*' | grep -o '[0-9]*')
+            echo "Progress: $CURRENT/$TOTAL windows complete"
+            if [ "$CURRENT" -eq "$TOTAL" ]; then
+              echo "✅ Backfill complete! All windows processed."
+            fi
+          fi
