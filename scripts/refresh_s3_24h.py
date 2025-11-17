@@ -196,32 +196,25 @@ def main() -> int:
 
     print(f"Added {max(0, added_count)} new rows. Total raw rows: {len(merged_raw)}")
 
-    # Save merged raw locally and upload
+    # Save merged raw locally (for processing only, not uploaded to S3)
     os.makedirs(os.path.dirname(raw_local), exist_ok=True)
     # Drop normalization helper columns before persisting
     norm_cols = [c for c in merged_raw.columns if str(c).startswith("norm_")]
     merged_to_save = merged_raw.drop(columns=norm_cols) if norm_cols else merged_raw
     merged_to_save.to_csv(raw_local, index=False)
-    # Use scraper's uploader convenience
-    try:
-        scraper.upload_to_s3(raw_local, bucket, raw_key_default)
-    except Exception as e:
-        print(f"Upload of merged raw to s3://{bucket}/{raw_key_default} failed: {e}")
-
-    # Optionally upload with custom prefix/timestamp
-    if args.timestamp or args.s3_prefix:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S") if args.timestamp else ""
-        basename = f"raw_jobs_{ts}.csv" if ts else os.path.basename(raw_key_default)
-        object_name = f"{args.s3_prefix}{basename}" if args.s3_prefix else basename
-        try:
-            scraper.upload_to_s3(raw_local, bucket, object_name)
-        except Exception as e:
-            print(f"Optional timestamped raw upload failed: {e}")
+    print(f"Saved raw data locally: {raw_local} (not uploaded to S3)")
 
     # Process
     processor = DataProcessor(raw_local)
     processor.process_all()
     processor.save_processed_data(processed_local)
+    
+    # Upload only processed data to S3 (raw data not needed in S3)
+    try:
+        processor.upload_to_s3(processed_local, bucket, processed_key_default)
+        print(f"Uploaded processed data to S3: s3://{bucket}/{processed_key_default}")
+    except Exception as e:
+        print(f"Processed data upload failed: {e}")
 
     # Optionally upload processed with custom prefix/timestamp
     if args.timestamp or args.s3_prefix:

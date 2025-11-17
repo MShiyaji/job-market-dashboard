@@ -280,19 +280,12 @@ def main() -> int:
         merged_raw = new_raw_norm.copy()
         print(f"📝 First dataset: {len(merged_raw)} rows")
 
-    # Save merged data
+    # Save merged data locally (for processing only, not uploaded to S3)
     os.makedirs(os.path.dirname(raw_local), exist_ok=True)
     norm_cols = [c for c in merged_raw.columns if str(c).startswith("norm_")]
     merged_to_save = merged_raw.drop(columns=norm_cols) if norm_cols else merged_raw
     merged_to_save.to_csv(raw_local, index=False)
-    
-    # Upload to S3
-    try:
-        scraper.upload_to_s3(raw_local, bucket, raw_key_default)
-        print(f"✓ Uploaded raw to S3: s3://{bucket}/{raw_key_default}")
-    except Exception as e:
-        print(f"❌ S3 upload failed: {e}")
-        return 1
+    print(f"✓ Saved raw data locally: {raw_local}")
 
     # Process data
     print("⚙️  Processing data...")
@@ -300,11 +293,12 @@ def main() -> int:
     processor.process_all()
     processor.save_processed_data(processed_local)
     
+    # Upload only processed data to S3 (raw data not needed in S3)
     try:
         processor.upload_to_s3(processed_local, bucket, processed_key_default)
-        print(f"✓ Uploaded processed to S3: s3://{bucket}/{processed_key_default}")
+        print(f"✓ Uploaded processed data to S3: s3://{bucket}/{processed_key_default}")
     except Exception as e:
-        print(f"❌ Processed upload failed: {e}")
+        print(f"❌ Processed data upload failed: {e}")
         return 1
 
     # Update state
