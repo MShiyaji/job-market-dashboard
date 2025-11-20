@@ -454,7 +454,7 @@ with tab1:
             yaxis=dict(categoryorder='total ascending'),
             xaxis=dict(ticksuffix='%', showgrid=False)
         )
-        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
     
     with col2:
         company_counts = filtered_df['company'].value_counts().head(10)
@@ -486,7 +486,7 @@ with tab1:
             yaxis=dict(categoryorder='total ascending'),
             xaxis=dict(ticksuffix='%', showgrid=False)
         )
-        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
 with tab2:
     st.subheader("Salary Analysis")
@@ -515,7 +515,7 @@ with tab2:
                 yaxis_title='Frequency',
                 bargap=0.05
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
         with col2:
             # Salary by role category (sorted highest to lowest)
@@ -550,7 +550,7 @@ with tab2:
                 yaxis=dict(categoryorder='total ascending'),
                 xaxis=dict(tickprefix='$', tickformat=',.0f', showgrid=False)
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
     else:
         st.warning("No salary data available in filtered results")
 
@@ -607,7 +607,7 @@ with tab3:
             yaxis=dict(categoryorder='total ascending'),
             xaxis=dict(ticksuffix='%', showgrid=False)
         )
-        st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+        st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
     else:
         st.warning("No skill data available for this selection")
@@ -685,7 +685,7 @@ with tab3:
                 )
             )
             fig_edu.update_yaxes(range=[0, 100], ticksuffix='%')
-            st.plotly_chart(fig_edu, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig_edu, width='stretch', config=PLOTLY_CONFIG)
         else:
             st.info("No education data available to plot trends since Oct 2025.")
     else:
@@ -768,7 +768,7 @@ with tab3:
                     )
                     fig_trend.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
                     fig_trend.update_yaxes(ticksuffix='%')
-                    st.plotly_chart(fig_trend, use_container_width=True, config=PLOTLY_CONFIG)
+                    st.plotly_chart(fig_trend, width='stretch', config=PLOTLY_CONFIG)
                 else:
                     st.info("Not enough recent data to identify trending skills.")
             else:
@@ -857,7 +857,7 @@ with tab3:
                     )
                     fig_decline.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
                     fig_decline.update_yaxes(ticksuffix='%')
-                    st.plotly_chart(fig_decline, use_container_width=True, config=PLOTLY_CONFIG)
+                    st.plotly_chart(fig_decline, width='stretch', config=PLOTLY_CONFIG)
                 else:
                     st.info("Not enough recent data to identify declining skills.")
             else:
@@ -882,26 +882,43 @@ with tab4:
         # Save uploaded file
         with open('data/resume.pdf', 'wb') as f:
             f.write(uploaded_resume.getbuffer())
-        st.success("✅ Resume uploaded!")
+        st.success("Resume uploaded!")
     
-    if st.button(" Analyze Resume Fit", type="primary") and st.session_state.data_loaded:
-        if os.path.exists('data/resume.pdf'):
-            with st.spinner("Analyzing your fit for jobs using Gemini AI..."):
+    if st.button("Analyze Resume Fit", type="primary"):
+        if not st.session_state.data_loaded:
+            st.error("No job data loaded! Please load or scrape job data first.")
+        elif not os.path.exists('data/resume.pdf'):
+            st.error("Please upload a resume first!")
+            st.info("Use the file uploader above to upload your resume (PDF format)")
+        else:
+            st.info("Analyzing 10 jobs in a single API call. This will take ~5-10 seconds.")
+            with st.spinner("Analyzing your fit for jobs using AI..."):
                 try:
                     from resume_analyzer import ResumeAnalyzer
                     analyzer = ResumeAnalyzer('data/resume.pdf')
                     matches = analyzer.analyze_job_market_fit(
                         st.session_state.jobs_df,
-                        sample_size=15
+                        sample_size=10  # Reduced to 10 to stay within free tier token limits (1M TPM)
                     )
-                    st.session_state.matches_df = matches
-                    matches.to_csv('data/job_matches.csv', index=False)
-                    st.success("✅ Analysis complete!")
+                    
+                    # Check if analysis actually produced results
+                    if matches is None or matches.empty:
+                        st.error("Analysis failed - no matches generated")
+                        st.info("This could be due to: API rate limits, invalid API key, or malformed AI responses. Check the console logs for details.")
+                    elif 'match_percentage' not in matches.columns:
+                        st.error("Analysis produced invalid data format")
+                        st.info("The AI responses are not in the expected format. Try again or check your GEMINI_API_KEY.")
+                    else:
+                        st.session_state.matches_df = matches
+                        matches.to_csv('data/job_matches.csv', index=False)
+                        st.success(f"Analysis complete! Matched {len(matches)} jobs.")
+                        
+                except ValueError as e:
+                    st.error(f"Configuration error: {e}")
+                    st.info("Make sure GEMINI_API_KEY is set in your .env file")
                 except Exception as e:
-                    st.error(f"Resume analyzer unavailable: {e}")
-                    st.info("Install dependencies and set GEMINI_API_KEY in .env to enable this feature.")
-        else:
-            st.error("Please upload a resume first!")
+                    st.error(f"Resume analyzer error: {e}")
+                    st.info("Check that all dependencies are installed (PyMuPDF, google-generativeai)")
     
     st.markdown("---")
     
@@ -947,7 +964,7 @@ with tab4:
                 yaxis_title='Number of Jobs',
                 bargap=0.05
             )
-            st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
             
             # Top matches
             st.markdown("### Your Best Job Matches")
@@ -1003,7 +1020,7 @@ with tab4:
                     showlegend=False,
                     xaxis=dict(showgrid=False)
                 )
-                st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+                st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
             
             # Generate personalized insights
             if st.button("Generate Personalized Career Advice"):
@@ -1036,7 +1053,7 @@ with tab5:
     # Ensure we have date data
     if 'date_posted' not in filtered_df.columns:
         st.warning("No date information available in the dataset. Cannot generate time-based analytics.")
-        st.info("💡 Make sure your scraped data includes 'date_posted' field.")
+        st.info("Make sure your scraped data includes 'date_posted' field.")
         st.stop()
     
     try:
@@ -1088,7 +1105,7 @@ with tab5:
                 yaxis=dict(categoryorder='total ascending'),
                 xaxis=dict(ticksuffix='%', showgrid=False)
             )
-            st.plotly_chart(fig1, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig1, width='stretch', config=PLOTLY_CONFIG)
             
             # Show stats
             col1, col2, col3 = st.columns(3)
@@ -1144,7 +1161,7 @@ with tab5:
             )
             fig2.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
             fig2.update_yaxes(ticksuffix='%', autorange=True)
-            st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
+            st.plotly_chart(fig2, width='stretch', config=PLOTLY_CONFIG)
             
             # Calculate growth rates
             st.markdown("#### Growth Metrics (Last 7 Days)")
@@ -1165,7 +1182,7 @@ with tab5:
                     })
                 
                 growth_df = pd.DataFrame(growth_data).sort_values('Avg %/Day', ascending=False)
-                st.dataframe(growth_df, use_container_width=True)
+                st.dataframe(growth_df, width='stretch')
         else:
             st.warning("No date data available for growth analysis")
         
@@ -1284,7 +1301,7 @@ with tab5:
                         )
                         fig3.update_xaxes(range=[datetime(2025, 10, 1), datetime.now() + timedelta(days=30)])
                         
-                        st.plotly_chart(fig3, use_container_width=True, config=PLOTLY_CONFIG)
+                        st.plotly_chart(fig3, width='stretch', config=PLOTLY_CONFIG)
                         
                         # Prediction insights
                         current_total = int(daily_counts['cumulative'].iloc[-1])
@@ -1459,7 +1476,7 @@ with tab6:
             fig_a = style_chart(fig_a, "", show_grid=False)
             fig_a.update_xaxes(tickprefix='$', tickformat=',.0f')
             fig_a.update_layout(height=300, bargap=0.05)
-            st.plotly_chart(fig_a, use_container_width=True, config=PLOTLY_CONFIG, key='salary_hist_a')
+            st.plotly_chart(fig_a, width='stretch', config=PLOTLY_CONFIG, key='salary_hist_a')
         else:
             st.info("No salary data available for Set A")
     
@@ -1480,7 +1497,7 @@ with tab6:
             fig_b = style_chart(fig_b, "", show_grid=False)
             fig_b.update_xaxes(tickprefix='$', tickformat=',.0f')
             fig_b.update_layout(height=300, bargap=0.05)
-            st.plotly_chart(fig_b, use_container_width=True, config=PLOTLY_CONFIG, key='salary_hist_b')
+            st.plotly_chart(fig_b, width='stretch', config=PLOTLY_CONFIG, key='salary_hist_b')
         else:
             st.info("No salary data available for Set B")
     
@@ -1491,7 +1508,7 @@ with tab6:
         st.markdown("**Set A: Top 5 Companies**")
         if len(df_a) > 0:
             top_companies_a = df_a['company'].value_counts().head(5)
-            st.dataframe(top_companies_a.reset_index().rename(columns={'index': 'Company', 'company': 'Count'}), use_container_width=True)
+            st.dataframe(top_companies_a.reset_index().rename(columns={'index': 'Company', 'company': 'Count'}), width='stretch')
         else:
             st.info("No data for Set A")
     
@@ -1499,7 +1516,7 @@ with tab6:
         st.markdown("**Set B: Top 5 Companies**")
         if len(df_b) > 0:
             top_companies_b = df_b['company'].value_counts().head(5)
-            st.dataframe(top_companies_b.reset_index().rename(columns={'index': 'Company', 'company': 'Count'}), use_container_width=True)
+            st.dataframe(top_companies_b.reset_index().rename(columns={'index': 'Company', 'company': 'Count'}), width='stretch')
         else:
             st.info("No data for Set B")
     
@@ -1538,7 +1555,7 @@ with tab6:
                     yaxis=dict(categoryorder='total ascending'),
                     xaxis=dict(ticksuffix='%', showgrid=False)
                 )
-                st.plotly_chart(fig_a, use_container_width=True, config=PLOTLY_CONFIG, key='skills_a')
+                st.plotly_chart(fig_a, width='stretch', config=PLOTLY_CONFIG, key='skills_a')
             else:
                 st.info("No data for Set A")
         
@@ -1572,7 +1589,7 @@ with tab6:
                     yaxis=dict(categoryorder='total ascending'),
                     xaxis=dict(ticksuffix='%', showgrid=False)
                 )
-                st.plotly_chart(fig_b, use_container_width=True, config=PLOTLY_CONFIG, key='skills_b')
+                st.plotly_chart(fig_b, width='stretch', config=PLOTLY_CONFIG, key='skills_b')
             else:
                 st.info("No data for Set B")
 
