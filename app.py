@@ -48,7 +48,7 @@ def read_csv_from_s3(bucket: str, key: str) -> pd.DataFrame | None:
         )
         obj = s3.get_object(Bucket=bucket, Key=key)
         data = obj["Body"].read()
-        return pd.read_csv(io.BytesIO(data))
+        return pd.read_csv(io.BytesIO(data), low_memory=False)
     except (BotoCoreError, ClientError, Exception) as e:
         print(f"S3 load failed for s3://{bucket}/{key}: {e}")
         return None
@@ -57,7 +57,7 @@ def read_csv_from_s3(bucket: str, key: str) -> pd.DataFrame | None:
 def read_csv_local(path: str) -> pd.DataFrame | None:
     """Read a CSV from local disk; return None on failure."""
     try:
-        return pd.read_csv(path)
+        return pd.read_csv(path, low_memory=False)
     except Exception as e:
         print(f"Local CSV load failed for {path}: {e}")
         return None
@@ -890,14 +890,16 @@ with tab4:
         elif not os.path.exists('data/resume.pdf'):
             st.error("Please upload a resume first!")
             st.info("Use the file uploader above to upload your resume (PDF format)")
+        elif filtered_df.empty:
+            st.error("No jobs match your current filters! Please adjust filters to include some jobs.")
         else:
-            st.info("Analyzing 10 jobs in a single API call. This will take ~5-10 seconds.")
+            st.info(f"Analyzing 10 jobs from your filtered selection ({len(filtered_df)} total). This will take ~5-10 seconds.")
             with st.spinner("Analyzing your fit for jobs using AI..."):
                 try:
                     from resume_analyzer import ResumeAnalyzer
                     analyzer = ResumeAnalyzer('data/resume.pdf')
                     matches = analyzer.analyze_job_market_fit(
-                        st.session_state.jobs_df,
+                        filtered_df,
                         sample_size=10  # Reduced to 10 to stay within free tier token limits (1M TPM)
                     )
                     

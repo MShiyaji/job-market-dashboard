@@ -16,7 +16,7 @@ class DataProcessor:
     
     def __init__(self, raw_data_path='data/raw_jobs.csv'):
         """Load raw job data"""
-        self.df = pd.read_csv(raw_data_path)
+        self.df = pd.read_csv(raw_data_path, low_memory=False)
         self.processed_df = None
         
     def clean_salary_data(self):

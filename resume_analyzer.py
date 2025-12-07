@@ -7,6 +7,7 @@ import pandas as pd
 import time
 import pickle
 from pathlib import Path
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -31,6 +32,16 @@ class ResumeAnalyzer:
         
         genai.configure(api_key=api_key)
     
+    def _log_api_call(self, operation):
+        """Log API usage to local file for tracking"""
+        try:
+            log_path = Path('data/api_usage.log')
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(f"[{timestamp}] {operation} (gemini-2.5-flash-lite)\n")
+        except Exception as e:
+            print(f"Warning: Could not log API usage: {e}")
+
     def extract_resume_text(self):
         """Extract text from PDF resume"""
         try:
@@ -83,7 +94,8 @@ education (string), key_projects (list).
 """
         
         try:
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            self._log_api_call("extract_resume_skills")
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
             response = model.generate_content(prompt)
             
             # Parse JSON response
@@ -160,7 +172,7 @@ education (string), key_projects (list).
         else:
             sample_jobs = jobs_df
         
-        print(f"Analyzing {len(sample_jobs)} jobs in single API call...")
+        print(f"Analyzing jobs...")
         print(f"Note: Using sample_size={sample_size} to stay within free tier token limits")
         
         # Prepare aggregated job data with reduced description length
@@ -211,7 +223,8 @@ For EACH job, provide a match analysis. Return ONLY valid JSON (no markdown) as 
         
         for attempt in range(max_retries):
             try:
-                model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                self._log_api_call(f"analyze_job_market_fit_batch (attempt {attempt+1})")
+                model = genai.GenerativeModel('gemini-2.5-flash-lite')
                 response = model.generate_content(prompt)
                 
                 result_text = response.text.strip()
@@ -332,7 +345,8 @@ For EACH job, provide a match analysis. Return ONLY valid JSON (no markdown) as 
         """
         
         try:
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+            self._log_api_call("generate_insights")
+            model = genai.GenerativeModel('gemini-2.5-flash-lite')
             response = model.generate_content(insight_prompt)
             return response.text
         except Exception as e:
