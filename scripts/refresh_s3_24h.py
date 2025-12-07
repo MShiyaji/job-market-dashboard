@@ -87,7 +87,7 @@ def _add_norm_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Repopulate S3 with scraped/processed job data from last 24 hours")
-    p.add_argument("--search-terms", default=os.getenv("SEARCH_TERMS", "Data Scientist,Senior Data Scientist,Machine Learning Engineer,ML Engineer,AI Engineer,Artificial Intelligence Engineer,Data Analyst,Business Data Analyst,Data Engineer,Big Data Engineer,Analytics Engineer,Research Scientist,Applied Scientist"), help="Comma-separated search terms")
+    p.add_argument("--search-terms", default=os.getenv("SEARCH_TERMS", "Data Scientist,Machine learning engineer,AI engineer,Data Analyst,Data Engineer"), help="Comma-separated search terms")
     p.add_argument("--locations", default=os.getenv("LOCATIONS", "United States,Remote"), help="Comma-separated locations")
     p.add_argument("--results-per-site", type=int, default=int(os.getenv("RESULTS_PER_SITE", "400")), help="Max results per site (default: 400 for recent job analysis)")
     p.add_argument("--s3-prefix", default=os.getenv("S3_PREFIX", ""), help="Optional key prefix in S3 (e.g., 'jobs/')")
