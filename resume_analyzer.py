@@ -9,10 +9,8 @@ import pickle
 from pathlib import Path
 from datetime import datetime
 
-# Load environment variables
 load_dotenv()
 
-# Cache directory for resume skills
 CACHE_DIR = Path('data/.cache')
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -25,7 +23,6 @@ class ResumeAnalyzer:
         self.resume_text = None
         self.skills = {}
         
-        # Initialize Gemini client - try RESUME_GEMINI_API_KEY first, fallback to GEMINI_API_KEY
         api_key = os.getenv('RESUME_GEMINI_API_KEY') or os.getenv('GEMINI_API_KEY')
         if not api_key:
             raise ValueError("GEMINI_API_KEY or RESUME_GEMINI_API_KEY not found in .env file")
@@ -61,12 +58,10 @@ class ResumeAnalyzer:
         if not self.resume_text:
             self.extract_resume_text()
         
-        # Generate cache key based on resume content hash
         import hashlib
         resume_hash = hashlib.md5(self.resume_text.encode()).hexdigest()
         cache_file = CACHE_DIR / f'resume_skills_{resume_hash}.pkl'
         
-        # Try to load from cache first
         if cache_file.exists():
             try:
                 with open(cache_file, 'rb') as f:
@@ -77,7 +72,6 @@ class ResumeAnalyzer:
             except Exception as e:
                 print(f"Cache read failed: {e}")
         
-        # If not cached, extract with API
         prompt = f"""
 Analyze this resume and extract:
 1. Technical skills (programming languages, tools, frameworks)

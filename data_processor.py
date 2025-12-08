@@ -7,7 +7,6 @@ from datetime import datetime
 from botocore.exceptions import NoCredentialsError
 from dotenv import load_dotenv
 
-# Load environment variables (for AWS credentials and bucket)
 load_dotenv()
 
 class DataProcessor:

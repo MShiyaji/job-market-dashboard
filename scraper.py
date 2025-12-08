@@ -16,10 +16,8 @@ import pandas as pd
 from botocore.exceptions import NoCredentialsError
 from dotenv import load_dotenv
 
-# Load environment variables (for AWS credentials and bucket)
 load_dotenv()
 
-# jobspy is optional at runtime; provide a helpful message/fallback if missing
 try:  # pragma: no cover - optional dependency
     from jobspy import scrape_jobs as jobspy_scrape_jobs  # type: ignore
 except Exception:  # pragma: no cover
@@ -56,7 +54,6 @@ class JobScraper:
           (when supported by JobSpy) to improve coverage and reduce country parsing errors.
         """
         if site_names is None:
-            # Default to common sites; Glassdoor handling is conditional per location
             site_names = ["indeed", "linkedin", "glassdoor"]
 
         all_jobs_list: List[pd.DataFrame] = []
@@ -70,21 +67,16 @@ class JobScraper:
                         "jobspy is not installed. Install it with 'pip install jobspy' to scrape real data."
                     )
 
-                # Build per-site calls for better control (especially Glassdoor)
                 aggregated: List[pd.DataFrame] = []
 
                 for site in site_names:
-                    # Skip Glassdoor for very broad locations that typically fail to parse
                     if site.lower() == "glassdoor" and location.strip().lower() in {"united states", "remote"}:
                         print("Skipping Glassdoor for broad location; requires city/state-level location")
                         continue
 
-                    # Time windows for scraping - use custom if provided, otherwise default balanced 30-day windows
                     if self.time_windows:
                         time_windows = self.time_windows
                     else:
-                        # To ensure comprehensive coverage across the 30-day period without recency bias,
-                        # scrape in non-overlapping 7-day windows to give equal treatment to each time period
                         time_windows = [
                             {"hours_old": 168, "hours_new": 0, "results_wanted": self.results_per_site // 4},      # 0-7 days ago (~100 results)
                             {"hours_old": 336, "hours_new": 168, "results_wanted": self.results_per_site // 4},   # 7-14 days ago (~100 results)

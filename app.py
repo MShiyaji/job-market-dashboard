@@ -14,12 +14,9 @@ import re
 # Import custom modules
 from scraper import JobScraper
 from data_processor import DataProcessor
-# Lazy import for resume analyzer to avoid startup failures if optional deps missing
 
-# Load environment variables (for AWS credentials and bucket)
 load_dotenv()
 
-# --- Education helpers ------------------------------------------------------
 def extract_highest_degree(text: str | None) -> str | None:
     if not isinstance(text, str):
         return None
@@ -35,7 +32,6 @@ def extract_highest_degree(text: str | None) -> str | None:
         return "Bachelor's"
     return None
 
-# --- S3 helpers -------------------------------------------------------------
 @st.cache_data(show_spinner=False, ttl=300)
 def read_csv_from_s3(bucket: str, key: str) -> pd.DataFrame | None:
     """Read a CSV from S3 into a DataFrame; return None on failure."""
@@ -73,7 +69,7 @@ def autoload_jobs_from_s3() -> bool:
         st.session_state.data_loaded = True
         return True
     return False
-# Page configuration
+
 st.set_page_config(
 page_title="Data Science Job Market Dashboard",
 page_icon="",
@@ -81,7 +77,6 @@ layout="wide",
 initial_sidebar_state="expanded"
 )
 
-# Initialize session state FIRST
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 if 'jobs_df' not in st.session_state:
@@ -89,7 +84,6 @@ if 'jobs_df' not in st.session_state:
 if 'matches_df' not in st.session_state:
     st.session_state.matches_df = None
 
-# Theme colors - Dark mode only
 bg_color = "#0E1117"
 secondary_bg = "#262730"
 text_color = "#FAFAFA"
@@ -231,15 +225,15 @@ def categorize_job_title(title):
     if not isinstance(title, str):
         return "Other"
     t = title.lower().strip()
-    if 'data scientist' in t:
+    if 'data scientist' in t or 'research scientist' in t:
         return 'Data Scientist'
-    elif 'machine learning' in t or 'ml engineer' in t:
+    elif 'machine learning' in t or 'ml engineer' in t or 'applied scientist' in t or 'deep learning' in t:
         return 'Machine Learning Engineer'
     elif 'ai engineer' in t or 'artificial intelligence' in t:
         return 'AI Engineer'
-    elif 'data analyst' in t or 'analyst' in t or 'analytics' in t:
+    elif 'data analyst' in t or 'analyst' in t or 'analytics' in t or 'business intelligence' in t:
         return 'Data Analyst'
-    elif 'data engineer' in t:
+    elif 'data engineer' in t or 'etl' in t:
         return 'Data Engineer'
     elif 'software engineer' in t or 'developer' in t:
         return 'Software Engineer'
@@ -487,6 +481,67 @@ with tab1:
             xaxis=dict(ticksuffix='%', showgrid=False)
         )
         st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
+
+    # Role Trends Over Time
+    st.markdown("---")
+    if 'date_posted' in filtered_df.columns:
+        trend_df = filtered_df.copy()
+        trend_df['date_posted'] = pd.to_datetime(trend_df['date_posted'], errors='coerce')
+        trend_df = trend_df.dropna(subset=['date_posted'])
+        
+        # Group by date and role
+        daily_roles = trend_df.groupby([trend_df['date_posted'].dt.date, 'role_category']).size().reset_index(name='count')
+        
+        # Ensure all roles exist for all dates (fill missing with 0) to allow continuous lines
+        if not daily_roles.empty:
+            all_dates = daily_roles['date_posted'].unique()
+            all_roles = daily_roles['role_category'].unique()
+            # Create Cartesian product of all dates and roles
+            idx = pd.MultiIndex.from_product([all_dates, all_roles], names=['date_posted', 'role_category'])
+            daily_roles = daily_roles.set_index(['date_posted', 'role_category']).reindex(idx, fill_value=0).reset_index()
+
+        # Calculate percentages (denominator includes 'Other' and all categories)
+        daily_totals = daily_roles.groupby('date_posted')['count'].transform('sum')
+        daily_roles['percentage'] = (daily_roles['count'] / daily_totals) * 100
+        daily_roles['percentage'] = daily_roles['percentage'].fillna(0)
+        
+        vibrant_colors = [
+            "#FF595E", # Red
+            "#FFCA3A", # Yellow
+            "#8AC926", # Green
+            "#1982C4", # Blue
+            "#6A4C93", # Purple
+            "#F15BB5", # Pink
+            "#00BBF9", # Light Blue
+            "#00F5D4"  # Teal
+        ]
+        
+        if not daily_roles.empty:
+            fig_trend = go.Figure()
+            
+            roles = sorted(daily_roles['role_category'].unique())
+            for i, role in enumerate(roles):
+                role_data = daily_roles[daily_roles['role_category'] == role]
+                color = vibrant_colors[i % len(vibrant_colors)]
+                
+                fig_trend.add_trace(go.Scatter(
+                    x=role_data['date_posted'],
+                    y=role_data['percentage'],
+                    mode='lines',
+                    name=role,
+                    line=dict(width=2, color=color),
+                    hovertemplate='%{y:.1f}%<extra></extra>'
+                ))
+            
+            fig_trend = style_chart(fig_trend, "Job Roles Over Time (Daily Distribution)")
+            fig_trend.update_layout(
+                hovermode='x unified',
+                yaxis=dict(ticksuffix='%', title="Percentage of Daily Jobs"),
+                xaxis=dict(range=[datetime(2025, 11, 1), datetime.now()])
+            )
+            st.plotly_chart(fig_trend, width='stretch', config=PLOTLY_CONFIG)
+    else:
+        st.info("Date information not available for trend analysis.")
 
 with tab2:
     st.subheader("Salary Analysis")

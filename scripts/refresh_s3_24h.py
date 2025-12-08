@@ -142,15 +142,15 @@ def main() -> int:
             existing_raw = None
             print(f"ℹ No local file found at {raw_local}; starting fresh with new scrape")
 
-    # Scrape fresh data from last 24 hours
-    print(f"Scraping last 24 hours with terms={search_terms}, locations={locations}, results/site={results_per_site}")
+    # Scrape fresh data from last 48 hours (matching historical backfill window size)
+    print(f"Scraping last 48 hours with terms={search_terms}, locations={locations}, results/site={results_per_site}")
 
-    # Configure time windows for last 24 hours only
-    time_windows_24h = [
+    # Configure time windows for last 48 hours
+    time_windows_48h = [
         {"hours_old": 48, "hours_new": 0, "results_wanted": results_per_site}
     ]
 
-    scraper = JobScraper(search_terms=search_terms, locations=locations, results_per_site=results_per_site, time_windows=time_windows_24h)
+    scraper = JobScraper(search_terms=search_terms, locations=locations, results_per_site=results_per_site, time_windows=time_windows_48h)
     new_raw = scraper.scrape_jobs()
 
     # Normalize for robust de-duplication
@@ -215,8 +215,6 @@ def main() -> int:
         print(f"Uploaded processed data to S3: s3://{bucket}/{processed_key_default}")
     except Exception as e:
         print(f"Processed data upload failed: {e}")
-
-    # Optionally upload processed with custom prefix/timestamp
     if args.timestamp or args.s3_prefix:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S") if args.timestamp else ""
         basename = f"processed_jobs_{ts}.csv" if ts else os.path.basename(processed_key_default)
