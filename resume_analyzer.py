@@ -17,13 +17,15 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 class ResumeAnalyzer:
     """Parse resume and match against job requirements using AI"""
     
-    def __init__(self, resume_path='data/resume.pdf'):
+    def __init__(self, resume_path='data/resume.pdf', api_key=None):
         """Initialize with resume path and Gemini API"""
         self.resume_path = resume_path
         self.resume_text = None
         self.skills = {}
         
-        api_key = os.getenv('RESUME_GEMINI_API_KEY') or os.getenv('GEMINI_API_KEY')
+        if not api_key:
+            api_key = os.getenv('RESUME_GEMINI_API_KEY') or os.getenv('GEMINI_API_KEY')
+        
         if not api_key:
             raise ValueError("GEMINI_API_KEY or RESUME_GEMINI_API_KEY not found in .env file")
         

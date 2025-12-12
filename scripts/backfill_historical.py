@@ -112,16 +112,15 @@ def save_state(state: dict) -> None:
         json.dump(state, f, indent=2)
 
 
-def get_next_window(state: dict) -> Optional[dict]:
+def get_next_window(state: dict, results_per_site: int) -> Optional[dict]:
     """
-    Calculate the next 2-day window to scrape.
+    Calculate the next pagination window to scrape.
     Returns None if backfill is complete.
     
-    Windows work backwards from 30 days ago:
-    - Window 0: 30-28 days ago (hours_old=720, hours_new=672)
-    - Window 1: 28-26 days ago (hours_old=672, hours_new=624)
+    Uses pagination (offset) to go back in time, assuming results are date-descending.
+    - Window 0: Offset 0 (Newest jobs)
+    - Window 1: Offset N (Slightly older)
     - ...
-    - Window 14: 2-0 days ago (hours_old=48, hours_new=0)
     """
     current = state["current_window"]
     total = state["total_windows"]
@@ -129,24 +128,22 @@ def get_next_window(state: dict) -> Optional[dict]:
     if current >= total:
         return None
     
-    # Calculate hours for this window (working backwards from 30 days)
-    # Window 0 is oldest (30-28 days), Window 14 is most recent (2-0 days)
-    hours_old = 720 - (current * 48)  # 720 = 30 days in hours
-    hours_new = hours_old - 48
+    # Calculate offset
+    offset = current * results_per_site
     
     return {
         "window_num": current,
-        "hours_old": hours_old,
-        "hours_new": hours_new,
-        "description": f"Days {(hours_old/24):.0f}-{(hours_new/24):.0f} ago"
+        "hours_old": 720,  # Always look at last 30 days
+        "offset": offset,
+        "description": f"Pagination Offset {offset} (Jobs {offset}-{offset+results_per_site})"
     }
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Progressive backfill of historical job data (2-day windows)")
-    p.add_argument("--search-terms", default=os.getenv("SEARCH_TERMS", "Data Scientist,Machine learning engineer,AI engineer,Data Analyst,Data Engineer"), help="Comma-separated search terms")
+    p.add_argument("--search-terms", default=os.getenv("SEARCH_TERMS", "Data Scientist,Senior Data Scientist,Machine Learning Engineer,ML Engineer,AI Engineer,Artificial Intelligence Engineer,Data Analyst,Business Data Analyst,Data Engineer,Big Data Engineer,Analytics Engineer,Research Scientist,Applied Scientist"), help="Comma-separated search terms")
     p.add_argument("--locations", default=os.getenv("LOCATIONS", "United States,Remote"), help="Comma-separated locations")
-    p.add_argument("--results-per-site", type=int, default=int(os.getenv("RESULTS_PER_SITE", "400")), help="Max results per site per window")
+    p.add_argument("--results-per-site", type=int, default=int(os.getenv("RESULTS_PER_SITE", "50")), help="Max results per site per window")
     p.add_argument("--reset", action="store_true", help="Reset backfill state and start over")
     return p.parse_args()
 
@@ -180,7 +177,7 @@ def main() -> int:
         state = load_state()
 
     # Check if backfill is complete
-    window_info = get_next_window(state)
+    window_info = get_next_window(state, results_per_site)
     if window_info is None:
         print("✅ Backfill complete! All 15 windows (30 days) have been processed.")
         return 0
@@ -224,7 +221,7 @@ def main() -> int:
 
     time_windows = [{
         "hours_old": window_info["hours_old"],
-        "hours_new": window_info["hours_new"],
+        "offset": window_info["offset"],
         "results_wanted": results_per_site
     }]
 

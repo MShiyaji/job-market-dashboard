@@ -482,13 +482,45 @@ with tab1:
         )
         st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
-    # Role Trends Over Time
+    # Time Series Analysis
     st.markdown("---")
     if 'date_posted' in filtered_df.columns:
         trend_df = filtered_df.copy()
         trend_df['date_posted'] = pd.to_datetime(trend_df['date_posted'], errors='coerce')
         trend_df = trend_df.dropna(subset=['date_posted'])
         
+        # 1. Daily Job Volume Chart
+        daily_volume = trend_df.groupby(trend_df['date_posted'].dt.date).size().reset_index(name='count')
+        daily_volume['date_posted'] = pd.to_datetime(daily_volume['date_posted'])
+        
+        # Ensure continuous dates for volume chart
+        if not daily_volume.empty:
+            all_dates_vol = pd.date_range(start=daily_volume['date_posted'].min(), end=daily_volume['date_posted'].max())
+            daily_volume = daily_volume.set_index('date_posted').reindex(all_dates_vol, fill_value=0).reset_index()
+            daily_volume.columns = ['date_posted', 'count']
+
+            fig_vol = go.Figure()
+            fig_vol.add_trace(go.Scatter(
+                x=daily_volume['date_posted'],
+                y=daily_volume['count'],
+                mode='lines+markers',
+                name='Job Count',
+                line=dict(width=3, color='#FFFFFF'),
+                marker=dict(size=6, color='#FFFFFF'),
+                fill='tozeroy',
+                fillcolor='rgba(255, 255, 255, 0.1)',
+                hovertemplate='%{y} jobs<extra></extra>'
+            ))
+            
+            fig_vol = style_chart(fig_vol, "Daily Job Volume")
+            fig_vol.update_layout(
+                hovermode='x unified',
+                yaxis_title="Number of Jobs",
+                xaxis=dict(range=[datetime(2025, 11, 1), datetime.now()])
+            )
+            st.plotly_chart(fig_vol, width='stretch', config=PLOTLY_CONFIG)
+
+        # 2. Role Trends Over Time
         # Group by date and role
         daily_roles = trend_df.groupby([trend_df['date_posted'].dt.date, 'role_category']).size().reset_index(name='count')
         
@@ -939,7 +971,24 @@ with tab4:
             f.write(uploaded_resume.getbuffer())
         st.success("Resume uploaded!")
     
-    if st.button("Analyze Resume Fit", type="primary"):
+    # API Key Management
+    # Force user to provide their own key
+    if 'user_gemini_key' not in st.session_state:
+        st.session_state.user_gemini_key = ""
+    
+    api_key = st.text_input(
+        "Enter your Gemini API Key", 
+        type="password",
+        value=st.session_state.user_gemini_key,
+        help="Your key is used only for this session and not stored permanently. Get one at aistudio.google.com"
+    )
+    
+    if api_key:
+        st.session_state.user_gemini_key = api_key
+    else:
+        st.warning("Please enter a Gemini API Key to use the AI features.")
+
+    if st.button("Analyze Resume Fit", type="primary", disabled=not api_key):
         if not st.session_state.data_loaded:
             st.error("No job data loaded! Please load or scrape job data first.")
         elif not os.path.exists('data/resume.pdf'):
@@ -952,7 +1001,7 @@ with tab4:
             with st.spinner("Analyzing your fit for jobs using AI..."):
                 try:
                     from resume_analyzer import ResumeAnalyzer
-                    analyzer = ResumeAnalyzer('data/resume.pdf')
+                    analyzer = ResumeAnalyzer('data/resume.pdf', api_key=api_key)
                     matches = analyzer.analyze_job_market_fit(
                         filtered_df,
                         sample_size=10  # Reduced to 10 to stay within free tier token limits (1M TPM)
@@ -1080,11 +1129,11 @@ with tab4:
                 st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
             
             # Generate personalized insights
-            if st.button("Generate Personalized Career Advice"):
+            if st.button("Generate Personalized Career Advice", disabled=not api_key):
                 with st.spinner("Generating insights with Gemini AI..."):
                     try:
                         from resume_analyzer import ResumeAnalyzer
-                        analyzer = ResumeAnalyzer('data/resume.pdf')
+                        analyzer = ResumeAnalyzer('data/resume.pdf', api_key=api_key)
                         insights = analyzer.generate_insights(matches_df)
                     except Exception as e:
                         st.error(f"Resume analyzer unavailable: {e}")
