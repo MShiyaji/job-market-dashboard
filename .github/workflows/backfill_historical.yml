@@ -35,6 +35,7 @@ jobs:
         with:
           name: backfill-state
           path: data/
+          if-no-artifact: warn
 
       - name: Run backfill script
         env:

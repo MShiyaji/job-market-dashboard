@@ -175,6 +175,10 @@ def main() -> int:
         print("🔄 Reset backfill state")
     else:
         state = load_state()
+        # Ensure state file exists on disk so artifact upload doesn't fail on first run/error
+        if not os.path.exists(STATE_FILE):
+            save_state(state)
+            print("ℹ Initialized backfill state file")
 
     # Check if backfill is complete
     window_info = get_next_window(state, results_per_site)
