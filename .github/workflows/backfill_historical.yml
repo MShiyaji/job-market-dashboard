@@ -4,7 +4,12 @@ on:
   schedule:
     # Run every hour to progressively backfill 30 days of data
     - cron: '0 * * * *'  # Every hour at minute 0
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      allow_fresh_state:
+        description: "Allow run to proceed without prior state artifact (first run only)"
+        required: false
+        default: "false"
 
 jobs:
   backfill:
@@ -35,7 +40,17 @@ jobs:
         with:
           name: backfill-state
           path: data/
-          if-no-artifact: warn
+
+      - name: Validate state artifact presence
+        run: |
+          if [ ! -f data/backfill_state.json ]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_fresh_state }}" = "true" ]; then
+              echo "State artifact missing; proceeding because allow_fresh_state=true (first run)."
+            else
+              echo "State artifact missing; failing run to avoid corrupt backfill."
+              exit 1
+            fi
+          fi
 
       - name: Run backfill script
         env:
