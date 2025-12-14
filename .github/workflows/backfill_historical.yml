@@ -34,6 +34,15 @@ jobs:
       - name: Create data directory
         run: mkdir -p data
 
+      - name: Ensure initial state file exists
+        run: |
+          if [ ! -f data/backfill_state.json ]; then
+            echo '{"completed_windows": [], "current_window": 0, "total_windows": 15}' > data/backfill_state.json
+            echo "Initialized default backfill_state.json (no prior artifact)."
+          else
+            echo "Found existing backfill_state.json before download step."
+          fi
+
       - name: Download state file from previous run
         continue-on-error: true
         uses: actions/download-artifact@v4
