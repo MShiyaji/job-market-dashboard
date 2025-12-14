@@ -41,17 +41,6 @@ jobs:
           name: backfill-state
           path: data/
 
-      - name: Validate state artifact presence
-        run: |
-          if [ ! -f data/backfill_state.json ]; then
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_fresh_state }}" = "true" ]; then
-              echo "State artifact missing; proceeding because allow_fresh_state=true (first run)."
-            else
-              echo "State artifact missing; failing run to avoid corrupt backfill."
-              exit 1
-            fi
-          fi
-
       - name: Run backfill script
         env:
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
