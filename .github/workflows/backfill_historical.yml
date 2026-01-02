@@ -34,21 +34,29 @@ jobs:
       - name: Create data directory
         run: mkdir -p data
 
-      - name: Ensure initial state file exists
-        run: |
-          if [ ! -f data/backfill_state.json ]; then
-            echo '{"completed_windows": [], "current_window": 0, "total_windows": 15}' > data/backfill_state.json
-            echo "Initialized default backfill_state.json (no prior artifact)."
-          else
-            echo "Found existing backfill_state.json before download step."
-          fi
-
       - name: Download state file from previous run
+        continue-on-error: true  # Handle missing artifact explicitly in next step
         uses: actions/download-artifact@v4
         with:
           name: backfill-state
           path: data/
-          if-no-files-found: ignore  # Avoid failing on first run when no artifact exists
+
+      - name: Validate or initialize state file
+        run: |
+          if [ -f data/backfill_state.json ]; then
+            echo "Found existing backfill_state.json after download step."
+            exit 0
+          fi
+
+          # No state found; allow only when explicitly permitted
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_fresh_state }}" = "true" ]; then
+            echo "No prior state found; allow_fresh_state=true -> initializing default state."
+            echo '{"completed_windows": [], "current_window": 0, "total_windows": 15}' > data/backfill_state.json
+            exit 0
+          fi
+
+          echo "No backfill_state.json found and allow_fresh_state is not enabled. Failing to avoid running without state." >&2
+          exit 1
 
       - name: Run backfill script
         env:
