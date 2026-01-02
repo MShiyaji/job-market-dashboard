@@ -44,11 +44,11 @@ jobs:
           fi
 
       - name: Download state file from previous run
-        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: backfill-state
           path: data/
+          if-no-files-found: ignore  # Avoid failing on first run when no artifact exists
 
       - name: Run backfill script
         env:
