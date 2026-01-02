@@ -66,17 +66,17 @@ jobs:
 
           state_path = Path("data/backfill_state.json")
           if not state_path.exists():
-            print("No state file present; run will initialize a default state.")
+              print("No state file present; run will initialize a default state.")
           else:
-            try:
-              state = json.loads(state_path.read_text())
-              current = state.get("current_window")
-              total = state.get("total_windows")
-              completed = len(state.get("completed_windows", []))
-              print(f"Starting backfill at window {current} of {total} (completed windows: {completed}).")
-            except Exception as exc:
-              print(f"Could not read backfill_state.json: {exc}")
-PY
+              try:
+                  state = json.loads(state_path.read_text())
+                  current = state.get("current_window")
+                  total = state.get("total_windows")
+                  completed = len(state.get("completed_windows", []))
+                  print(f"Starting backfill at window {current} of {total} (completed windows: {completed}).")
+              except Exception as exc:
+                  print(f"Could not read backfill_state.json: {exc}")
+          PY
 
       - name: Run backfill script
         env:
