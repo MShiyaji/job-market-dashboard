@@ -58,6 +58,26 @@ jobs:
           echo "No backfill_state.json found and allow_fresh_state is not enabled. Failing to avoid running without state." >&2
           exit 1
 
+      - name: Log current backfill window
+        run: |
+          python - <<'PY'
+import json
+from pathlib import Path
+
+state_path = Path("data/backfill_state.json")
+if not state_path.exists():
+    print("No state file present; run will initialize a default state.")
+else:
+    try:
+        state = json.loads(state_path.read_text())
+        current = state.get("current_window")
+        total = state.get("total_windows")
+        completed = len(state.get("completed_windows", []))
+        print(f"Starting backfill at window {current} of {total} (completed windows: {completed}).")
+    except Exception as exc:
+        print(f"Could not read backfill_state.json: {exc}")
+PY
+
       - name: Run backfill script
         env:
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
@@ -71,6 +91,16 @@ jobs:
           RESULTS_PER_SITE: "400"
         run: |
           python scripts/backfill_historical.py
+
+      - name: Ensure state file for upload
+        if: always()
+        run: |
+          if [ ! -f data/backfill_state.json ]; then
+            echo "State file missing after run; creating default to allow artifact upload." >&2
+            echo '{"completed_windows": [], "current_window": 0, "total_windows": 15}' > data/backfill_state.json
+          else
+            echo "State file present; ready to upload."
+          fi
 
       - name: Save state for next run
         if: always()
