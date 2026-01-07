@@ -81,7 +81,6 @@ jobs:
       - name: Run backfill script
         env:
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
-          S3_RAW_KEY: ${{ secrets.S3_RAW_KEY }}
           S3_PROCESSED_KEY: ${{ secrets.S3_PROCESSED_KEY }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

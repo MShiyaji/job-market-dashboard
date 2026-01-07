@@ -489,36 +489,7 @@ with tab1:
         trend_df['date_posted'] = pd.to_datetime(trend_df['date_posted'], errors='coerce')
         trend_df = trend_df.dropna(subset=['date_posted'])
         
-        # 1. Daily Job Volume Chart
-        daily_volume = trend_df.groupby(trend_df['date_posted'].dt.date).size().reset_index(name='count')
-        daily_volume['date_posted'] = pd.to_datetime(daily_volume['date_posted'])
-        
-        # Ensure continuous dates for volume chart
-        if not daily_volume.empty:
-            all_dates_vol = pd.date_range(start=daily_volume['date_posted'].min(), end=daily_volume['date_posted'].max())
-            daily_volume = daily_volume.set_index('date_posted').reindex(all_dates_vol, fill_value=0).reset_index()
-            daily_volume.columns = ['date_posted', 'count']
-
-            fig_vol = go.Figure()
-            fig_vol.add_trace(go.Scatter(
-                x=daily_volume['date_posted'],
-                y=daily_volume['count'],
-                mode='lines+markers',
-                name='Job Count',
-                line=dict(width=3, color='#FFFFFF'),
-                marker=dict(size=6, color='#FFFFFF'),
-                fill='tozeroy',
-                fillcolor='rgba(255, 255, 255, 0.1)',
-                hovertemplate='%{y} jobs<extra></extra>'
-            ))
-            
-            fig_vol = style_chart(fig_vol, "Daily Job Volume")
-            fig_vol.update_layout(
-                hovermode='x unified',
-                yaxis_title="Number of Jobs",
-                xaxis=dict(range=[datetime(2025, 11, 1), datetime.now()])
-            )
-            st.plotly_chart(fig_vol, width='stretch', config=PLOTLY_CONFIG)
+        # 1. Daily Job Volume Chart - REMOVED
 
         # 2. Role Trends Over Time
         # Group by date and role
@@ -982,6 +953,17 @@ with tab4:
         value=st.session_state.user_gemini_key,
         help="Your key is used only for this session and not stored permanently. Get one at aistudio.google.com"
     )
+
+    with st.expander("🔑 How to get a Gemini API Key?"):
+        st.markdown("""
+        1. Select or create a **Google Cloud Project** in the [Google Cloud Console](https://console.cloud.google.com/)
+        2. Make sure **Billing** is enabled for your project (required for usage beyond free quotas)
+        3. Go to [Google AI Studio](https://aistudio.google.com/app/apikey) to create an API key for your project
+        4. Copy the key and paste it above
+        5. *Recommended*: Restrict your key in [Google Cloud Console > Credentials](https://console.cloud.google.com/apis/credentials) for security
+        
+        *Note: The API has a free usage tier, but billing may be required for high volume usage. Check current quotas on the pricing page.*
+        """)
     
     if api_key:
         st.session_state.user_gemini_key = api_key
