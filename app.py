@@ -491,56 +491,51 @@ with tab1:
         
         # 1. Daily Job Volume Chart - REMOVED
 
-        # 2. Role Trends Over Time
-        # Group by date and role
-        daily_roles = trend_df.groupby([trend_df['date_posted'].dt.date, 'role_category']).size().reset_index(name='count')
-        
-        # Ensure all roles exist for all dates (fill missing with 0) to allow continuous lines
-        if not daily_roles.empty:
-            all_dates = daily_roles['date_posted'].unique()
-            all_roles = daily_roles['role_category'].unique()
-            # Create Cartesian product of all dates and roles
-            idx = pd.MultiIndex.from_product([all_dates, all_roles], names=['date_posted', 'role_category'])
-            daily_roles = daily_roles.set_index(['date_posted', 'role_category']).reindex(idx, fill_value=0).reset_index()
+        # 2. Role Trends Over Time (weekly aggregation)
+        trend_df['week_start'] = trend_df['date_posted'].dt.to_period('W').apply(lambda p: p.start_time)
+        weekly_roles = trend_df.groupby(['week_start', 'role_category']).size().reset_index(name='count')
+        # Exclude the catch-all Other bucket from the series and percentage denominator
+        weekly_roles = weekly_roles[weekly_roles['role_category'] != 'Other']
 
-        # Calculate percentages (denominator includes 'Other' and all categories)
-        daily_totals = daily_roles.groupby('date_posted')['count'].transform('sum')
-        daily_roles['percentage'] = (daily_roles['count'] / daily_totals) * 100
-        daily_roles['percentage'] = daily_roles['percentage'].fillna(0)
-        
+        # Ensure all roles exist for all weeks (fill missing with 0) to allow continuous lines
+        if not weekly_roles.empty:
+            all_weeks = weekly_roles['week_start'].unique()
+            all_roles = weekly_roles['role_category'].unique()
+            idx = pd.MultiIndex.from_product([all_weeks, all_roles], names=['week_start', 'role_category'])
+            weekly_roles = weekly_roles.set_index(['week_start', 'role_category']).reindex(idx, fill_value=0).reset_index()
+
+        # Calculate weekly percentages excluding Other from the denominator
+        weekly_totals = weekly_roles.groupby('week_start')['count'].transform('sum')
+        weekly_roles['percentage'] = (weekly_roles['count'] / weekly_totals) * 100
+        weekly_roles['percentage'] = weekly_roles['percentage'].fillna(0)
+
         vibrant_colors = [
-            "#FF595E", # Red
-            "#FFCA3A", # Yellow
-            "#8AC926", # Green
-            "#1982C4", # Blue
-            "#6A4C93", # Purple
-            "#F15BB5", # Pink
-            "#00BBF9", # Light Blue
-            "#00F5D4"  # Teal
+            "#FF595E", "#FFCA3A", "#8AC926", "#1982C4",
+            "#6A4C93", "#F15BB5", "#00BBF9", "#00F5D4"
         ]
-        
-        if not daily_roles.empty:
+
+        if not weekly_roles.empty:
             fig_trend = go.Figure()
-            
-            roles = sorted(daily_roles['role_category'].unique())
+
+            roles = sorted(weekly_roles['role_category'].unique())
             for i, role in enumerate(roles):
-                role_data = daily_roles[daily_roles['role_category'] == role]
+                role_data = weekly_roles[weekly_roles['role_category'] == role]
                 color = vibrant_colors[i % len(vibrant_colors)]
-                
+
                 fig_trend.add_trace(go.Scatter(
-                    x=role_data['date_posted'],
+                    x=role_data['week_start'],
                     y=role_data['percentage'],
                     mode='lines',
                     name=role,
                     line=dict(width=2, color=color),
-                    hovertemplate='%{y:.1f}%<extra></extra>'
+                    hovertemplate='Week of %{x|%b %d, %Y}<br>%{y:.1f}%<extra></extra>'
                 ))
-            
-            fig_trend = style_chart(fig_trend, "Job Roles Over Time (Daily Distribution)")
+
+            fig_trend = style_chart(fig_trend, "Job Roles Over Time (Weekly Distribution)")
             fig_trend.update_layout(
                 hovermode='x unified',
-                yaxis=dict(ticksuffix='%', title="Percentage of Daily Jobs"),
-                xaxis=dict(range=[datetime(2025, 11, 1), datetime.now()])
+                yaxis=dict(ticksuffix='%', title="Percentage of Weekly Jobs"),
+                xaxis=dict(title="Week of", range=[datetime(2025, 11, 1), datetime.now()])
             )
             st.plotly_chart(fig_trend, width='stretch', config=PLOTLY_CONFIG)
     else:
@@ -1634,7 +1629,10 @@ with tab6:
                         cornerradius=5,
                         showscale=False
                     ),
-                    hovertemplate='<b>%{y}</b><br>%{x:.1f}%<extra></extra>'
+                    hovertemplate='<b>%{y}</b><br>%{x:.1f}% of jobs<extra></extra>',
+                    text=[f'{val:.1f}%' for val in top_skills_a.values()],
+                    textposition='inside',
+                    textfont=dict(size=11, family='Inter', color=text_colors_skills)
                 )])
                 fig_a = style_chart(fig_a, "", show_grid=False)
                 fig_a.update_layout(
@@ -1668,7 +1666,10 @@ with tab6:
                         cornerradius=5,
                         showscale=False
                     ),
-                    hovertemplate='<b>%{y}</b><br>%{x:.1f}%<extra></extra>'
+                    hovertemplate='<b>%{y}</b><br>%{x:.1f}% of jobs<extra></extra>',
+                    text=[f'{val:.1f}%' for val in top_skills_b.values()],
+                    textposition='inside',
+                    textfont=dict(size=11, family='Inter', color=text_colors_skills)
                 )])
                 fig_b = style_chart(fig_b, "", show_grid=False)
                 fig_b.update_layout(
@@ -1680,8 +1681,3 @@ with tab6:
                 st.plotly_chart(fig_b, width='stretch', config=PLOTLY_CONFIG, key='skills_b')
             else:
                 st.info("No data for Set B")
-
-# Footer
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Built by @MShiyaji**")
-st.sidebar.markdown(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
