@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 import numpy as np
 from sklearn.linear_model import LinearRegression
 import re
-# Import custom modules
 from scraper import JobScraper
 from data_processor import DataProcessor
 
@@ -138,15 +137,76 @@ def style_chart(fig, title="", show_grid=True):
     )
     return fig
 
-# Custom CSS with theme support
+# Custom CSS with theme support and fade-in animations
 st.markdown(f"""
 <style>
+/* Fade-in keyframe animation */
+@keyframes fadeIn {{
+    from {{
+        opacity: 0;
+        transform: translateY(20px);
+    }}
+    to {{
+        opacity: 1;
+        transform: translateY(0);
+    }}
+}}
+
+/* Apply fade-in to charts */
+[data-testid="stPlotlyChart"] {{
+    animation: fadeIn 0.6s ease-out forwards;
+}}
+
+/* Apply fade-in to tables */
+[data-testid="stTable"] {{
+    animation: fadeIn 0.6s ease-out forwards;
+    animation-delay: 0.1s;
+    opacity: 0;
+}}
+
+/* Apply fade-in to dataframes */
+[data-testid="stDataFrame"] {{
+    animation: fadeIn 0.6s ease-out forwards;
+    animation-delay: 0.1s;
+    opacity: 0;
+}}
+
+/* Apply fade-in to metrics */
+[data-testid="stMetric"] {{
+    animation: fadeIn 0.5s ease-out forwards;
+}}
+
+/* Stagger animation for metric columns */
+[data-testid="column"]:nth-child(1) [data-testid="stMetric"] {{
+    animation-delay: 0s;
+}}
+[data-testid="column"]:nth-child(2) [data-testid="stMetric"] {{
+    animation-delay: 0.1s;
+}}
+[data-testid="column"]:nth-child(3) [data-testid="stMetric"] {{
+    animation-delay: 0.2s;
+}}
+[data-testid="column"]:nth-child(4) [data-testid="stMetric"] {{
+    animation-delay: 0.3s;
+}}
+
+/* Apply fade-in to expanders */
+[data-testid="stExpander"] {{
+    animation: fadeIn 0.5s ease-out forwards;
+}}
+
+/* Apply fade-in to headers/subheaders */
+h1, h2, h3 {{
+    animation: fadeIn 0.4s ease-out forwards;
+}}
+
 .main-header {{
     font-size: 3rem;
     font-weight: bold;
     color: {accent_color};
     text-align: center;
     margin-bottom: 2rem;
+    animation: fadeIn 0.5s ease-out forwards;
 }}
 .metric-card {{
     background-color: {secondary_bg};
@@ -154,6 +214,7 @@ st.markdown(f"""
     border-radius: 0.5rem;
     margin: 0.5rem 0;
     border: 1px solid {border_color};
+    animation: fadeIn 0.5s ease-out forwards;
 }}
 .stApp {{
     background-color: {bg_color};
@@ -744,179 +805,88 @@ with tab3:
     else:
         st.info("Education or date data missing; unable to show education trend chart.")
 
-    # Hot skills: skills increasing in frequency the most
-    st.markdown("### 3) Hot Skills (Rising Fast)")
+    # Trending & Cooling Skills (Week-over-Week)
+    st.markdown("### 3) Trending & Cooling Skills (Week-over-Week)")
     if 'date_posted' in filtered_df.columns:
         df_dates = filtered_df.copy()
         df_dates['date_posted'] = pd.to_datetime(df_dates['date_posted'], errors='coerce')
         df_dates = df_dates.dropna(subset=['date_posted'])
-
-        if len(df_dates) > 0:
-            days = 30
-            cutoff = datetime.now() - timedelta(days=days)
-            df_30 = df_dates[df_dates['date_posted'] >= cutoff]
-
-            skill_cols_all = [c for c in df_30.columns if c.startswith('skill_')]
+        
+        now = datetime.now()
+        cur_start = now - timedelta(days=7)
+        prev_start = now - timedelta(days=14)
+        
+        # Current Week Data (last 7 days)
+        df_cur = df_dates[df_dates['date_posted'] >= cur_start]
+        # Previous Week Data (7 days before that)
+        df_prev = df_dates[(df_dates['date_posted'] >= prev_start) & (df_dates['date_posted'] < cur_start)]
+        
+        if len(df_cur) > 0 and len(df_prev) > 0:
+            skill_cols_all = [c for c in df_dates.columns if c.startswith('skill_')]
+            
             if skill_cols_all:
-                # Calculate daily counts and percentages
-                daily_counts = df_30.groupby(df_30['date_posted'].dt.date)[skill_cols_all].sum()
-                daily_totals = df_30.groupby(df_30['date_posted'].dt.date).size()
-                
-                # Convert to percentages
-                daily_pct = daily_counts.div(daily_totals, axis=0) * 100
-                
-                # Ensure the grouped index has a consistent name/format for melting and plotting
-                try:
-                    daily_pct.index = pd.to_datetime(daily_pct.index)
-                except Exception:
-                    pass
-                daily_pct.index.name = 'date'
-                
-                trends = []
+                metrics = []
                 for col in skill_cols_all:
-                    s = daily_pct[col]
-                    if s.sum() == 0 or len(s) < 5:
-                        continue
-                    x = np.arange(len(s))
-                    try:
-                        slope = float(np.polyfit(x, s.values, 1)[0])  # per-day percentage point change
-                    except Exception:
-                        continue
-                    trends.append({
-                        'Skill': col.replace('skill_', ''),
-                        'Trend (% pts/day)': round(slope, 4),
-                        'Current %': round(s.iloc[-1], 2),
-                        '30d avg %': round(s.mean(), 2)
-                    })
-
-                if trends:
-                    trends_df = pd.DataFrame(trends).sort_values('Trend (% pts/day)', ascending=False).head(10)
-
-                    # Visualize top 5 trending skills over time
-                    top_skills_names = trends_df['Skill'].head(5).tolist()
-                    plot_cols = [f'skill_{n}' for n in top_skills_names]
-                    melted = daily_pct[plot_cols].reset_index().melt(id_vars='date', var_name='skill', value_name='percentage')
-                    melted['skill'] = melted['skill'].str.replace('skill_', '', regex=False)
+                    skill_name = col.replace('skill_', '')
                     
-                    # Create figure with go.Scatter
-                    fig_trend = go.Figure()
-                    for i, skill in enumerate(top_skills_names):
-                        skill_data = melted[melted['skill'] == skill]
-                        fig_trend.add_trace(go.Scatter(
-                            x=skill_data['date'],
-                            y=skill_data['percentage'],
-                            mode='lines+markers',
-                            name=skill,
-                            line=dict(width=3, color=chart_colors[i % len(chart_colors)]),
-                            marker=dict(size=7, line=dict(width=1, color=bg_color)),
-                            hovertemplate=f'<b>{skill}</b><br>%{{x|%b %d}}<br>%{{y:.1f}}%<extra></extra>',
-                            fill='tonexty' if i > 0 else None,
-                            fillcolor=f'rgba({int(chart_colors[i % len(chart_colors)][1:3], 16)}, {int(chart_colors[i % len(chart_colors)][3:5], 16)}, {int(chart_colors[i % len(chart_colors)][5:7], 16)}, 0.1)'
-                        ))
+                    # Calc percentages
+                    pct_cur = (df_cur[col].sum() / len(df_cur) * 100)
+                    pct_prev = (df_prev[col].sum() / len(df_prev) * 100)
                     
-                    fig_trend = style_chart(fig_trend, 'Top Trending Skills - % of Jobs (Last 30 Days)')
-                    fig_trend.update_layout(
-                        height=450,
-                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
-                    )
-                    fig_trend.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
-                    fig_trend.update_yaxes(ticksuffix='%')
-                    st.plotly_chart(fig_trend, width='stretch', config=PLOTLY_CONFIG)
+                    # Calculate percentage point change
+                    change = pct_cur - pct_prev
+                    
+                    # Only include if the skill has some meaningful presence (e.g. at least 1% in either week)
+                    # This prevents noise from very rare skills jumping from 0% to 0.1%
+                    if pct_cur > 1 or pct_prev > 1:
+                        metrics.append({
+                            'Skill': skill_name,
+                            'WoW Change': change,
+                            'Current %': pct_cur,
+                            'Previous %': pct_prev
+                        })
+                
+                if metrics:
+                    metrics_df = pd.DataFrame(metrics)
+                    
+                    # Trending: Highest positive change
+                    trending_df = metrics_df.sort_values('WoW Change', ascending=False).head(5)
+                    
+                    # Cooling: Lowest negative change (most decline)
+                    cooling_df = metrics_df.sort_values('WoW Change', ascending=True).head(5)
+                    
+                    # Display Side-by-Side
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown("#### 🔥 Top 5 Trending Skills")
+                        if not trending_df.empty and trending_df.iloc[0]['WoW Change'] > 0:
+                            # Format for display
+                            t_display = trending_df[['Skill', 'WoW Change']].copy()
+                            t_display['WoW Change'] = t_display['WoW Change'].apply(lambda x: f"+{x:.1f}%" if x > 0 else f"{x:.1f}%")
+                            t_display.columns = ['Skill', 'WoW Increase']
+                            st.table(t_display.reset_index(drop=True))
+                        else:
+                            st.info("No skills showing significant growth this week.")
+
+                    with col2:
+                        st.markdown("#### ❄️ Top 5 Cooling Skills")
+                        if not cooling_df.empty and cooling_df.iloc[0]['WoW Change'] < 0:
+                             # Format for display
+                            c_display = cooling_df[['Skill', 'WoW Change']].copy()
+                            c_display['WoW Change'] = c_display['WoW Change'].apply(lambda x: f"{x:.1f}%")
+                            c_display.columns = ['Skill', 'WoW Decline']
+                            st.table(c_display.reset_index(drop=True))
+                        else:
+                            st.info("No skills showing significant decline this week.")
                 else:
-                    st.info("Not enough recent data to identify trending skills.")
+                    st.info("No skills with sufficient data found for analysis.")
             else:
-                st.info("No skill columns found in the recent data window.")
+                st.info("No skill data columns found.")
         else:
-            st.info("No valid dates available to compute trends.")
-    else:
-        st.info("Dataset lacks 'date_posted' column; cannot compute trends.")
-
-    # Falling skills: skills declining in frequency the most
-    st.markdown("### 4) Cooling Skills (Declining Fast)")
-    if 'date_posted' in filtered_df.columns:
-        df_dates = filtered_df.copy()
-        df_dates['date_posted'] = pd.to_datetime(df_dates['date_posted'], errors='coerce')
-        df_dates = df_dates.dropna(subset=['date_posted'])
-
-        if len(df_dates) > 0:
-            days = 30
-            cutoff = datetime.now() - timedelta(days=days)
-            df_30 = df_dates[df_dates['date_posted'] >= cutoff]
-
-            skill_cols_all = [c for c in df_30.columns if c.startswith('skill_')]
-            if skill_cols_all:
-                # Calculate daily counts and percentages
-                daily_counts = df_30.groupby(df_30['date_posted'].dt.date)[skill_cols_all].sum()
-                daily_totals = df_30.groupby(df_30['date_posted'].dt.date).size()
-                
-                # Convert to percentages
-                daily_pct = daily_counts.div(daily_totals, axis=0) * 100
-                
-                # Ensure the grouped index has a consistent name/format for melting and plotting
-                try:
-                    daily_pct.index = pd.to_datetime(daily_pct.index)
-                except Exception:
-                    pass
-                daily_pct.index.name = 'date'
-                
-                declining_trends = []
-                for col in skill_cols_all:
-                    s = daily_pct[col]
-                    if s.sum() == 0 or len(s) < 5:
-                        continue
-                    x = np.arange(len(s))
-                    try:
-                        slope = float(np.polyfit(x, s.values, 1)[0])  # per-day percentage point change
-                    except Exception:
-                        continue
-                    declining_trends.append({
-                        'Skill': col.replace('skill_', ''),
-                        'Trend (% pts/day)': round(slope, 4),
-                        'Current %': round(s.iloc[-1], 2),
-                        '30d avg %': round(s.mean(), 2)
-                    })
-
-                if declining_trends:
-                    # Sort ascending to get most negative slopes (biggest declines)
-                    declining_df = pd.DataFrame(declining_trends).sort_values('Trend (% pts/day)', ascending=True).head(10)
-
-                    # Visualize top 5 declining skills over time
-                    top_declining_names = declining_df['Skill'].head(5).tolist()
-                    plot_cols_decline = [f'skill_{n}' for n in top_declining_names]
-                    melted_decline = daily_pct[plot_cols_decline].reset_index().melt(id_vars='date', var_name='skill', value_name='percentage')
-                    melted_decline['skill'] = melted_decline['skill'].str.replace('skill_', '', regex=False)
-                    
-                    # Create figure with go.Scatter
-                    fig_decline = go.Figure()
-                    declining_skills = melted_decline['skill'].unique()
-                    for i, skill in enumerate(declining_skills):
-                        skill_data = melted_decline[melted_decline['skill'] == skill]
-                        fig_decline.add_trace(go.Scatter(
-                            x=skill_data['date'],
-                            y=skill_data['percentage'],
-                            mode='lines+markers',
-                            name=skill,
-                            line=dict(width=3, color=chart_colors[i % len(chart_colors)]),
-                            marker=dict(size=7, line=dict(width=1, color=bg_color)),
-                            hovertemplate=f'<b>{skill}</b><br>%{{x|%b %d}}<br>%{{y:.1f}}%<extra></extra>',
-                            fill='tonexty' if i > 0 else None,
-                            fillcolor=f'rgba({int(chart_colors[i % len(chart_colors)][1:3], 16)}, {int(chart_colors[i % len(chart_colors)][3:5], 16)}, {int(chart_colors[i % len(chart_colors)][5:7], 16)}, 0.1)'
-                        ))
-                    
-                    fig_decline = style_chart(fig_decline, 'Top Declining Skills - % of Jobs (Last 30 Days)')
-                    fig_decline.update_layout(
-                        height=450,
-                        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
-                    )
-                    fig_decline.update_xaxes(range=[datetime(2025, 10, 1), datetime.now()])
-                    fig_decline.update_yaxes(ticksuffix='%')
-                    st.plotly_chart(fig_decline, width='stretch', config=PLOTLY_CONFIG)
-                else:
-                    st.info("Not enough recent data to identify declining skills.")
-            else:
-                st.info("No skill columns found in the recent data window.")
-        else:
-            st.info("No valid dates available to compute trends.")
+            st.info(f"Insufficient data to compare weeks. Need data from last 14 days.\n\n"
+                    f"Current Week Jobs: {len(df_cur)}\n\n"
+                    f"Previous Week Jobs: {len(df_prev)}")
     else:
         st.info("Dataset lacks 'date_posted' column; cannot compute trends.")
 
