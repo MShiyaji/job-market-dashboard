@@ -231,15 +231,8 @@ h1, h2, h3 {{
 # Always try to autoload from S3 on app start
 loaded = autoload_jobs_from_s3()
 if not loaded and not st.session_state.data_loaded:
-    # Fallback to local if S3 fails and no data loaded yet
-    if os.path.exists('data/processed_jobs.csv'):
-        df_local = read_csv_local('data/processed_jobs.csv')
-        if df_local is not None and not df_local.empty:
-            st.session_state.jobs_df = df_local
-            st.session_state.data_loaded = True
-            print("Loaded data from local data/processed_jobs.csv as fallback")
-        else:
-            print("Local fallback load failed or returned empty dataframe")
+    # S3 load failed - show error (no local fallback)
+    st.error("⚠️ Failed to load data from S3. Please check your AWS credentials and S3 bucket configuration.")
 # Main title
 st.markdown('<h1 style="text-align: center; font-weight: bold; font-size: 3.5rem; margin-bottom: 2rem;"> Data Science Job Market Dashboard</h1>', 
         unsafe_allow_html=True)
@@ -292,10 +285,10 @@ def categorize_job_title(title):
         return 'Machine Learning Engineer'
     elif 'ai engineer' in t or 'artificial intelligence' in t:
         return 'AI Engineer'
+    elif 'data engineer' in t or 'etl' in t or 'analytics engineer' in t or 'analytics specialist' in t:
+        return 'Data Engineer'
     elif 'data analyst' in t or 'analyst' in t or 'analytics' in t or 'business intelligence' in t:
         return 'Data Analyst'
-    elif 'data engineer' in t or 'etl' in t:
-        return 'Data Engineer'
     elif 'software engineer' in t or 'developer' in t:
         return 'Software Engineer'
     else:
@@ -347,39 +340,31 @@ if 'job_type' in df.columns:
 else:
     df['job_type_norm'] = None
 
-# Location filter with metro areas
-# Define metro area groupings
-METRO_AREAS = {
-    'San Francisco Bay Area': ['San Francisco, CA', 'San Jose, CA', 'Oakland, CA', 'Palo Alto, CA', 
-                                'Mountain View, CA', 'Sunnyvale, CA', 'Santa Clara, CA', 'Fremont, CA',
-                                'Berkeley, CA', 'Redwood City, CA', 'Cupertino, CA', 'Menlo Park, CA'],
-    'Dallas-Fort Worth': ['Dallas, TX', 'Fort Worth, TX', 'Arlington, TX', 'Plano, TX', 
-                          'Irving, TX', 'Frisco, TX', 'McKinney, TX', 'Denton, TX'],
-    'New York Metro': ['New York, NY', 'Brooklyn, NY', 'Queens, NY', 'Manhattan, NY', 
-                       'Bronx, NY', 'Jersey City, NJ', 'Newark, NJ', 'Hoboken, NJ'],
-    'Los Angeles Metro': ['Los Angeles, CA', 'Long Beach, CA', 'Anaheim, CA', 'Irvine, CA',
-                          'Santa Ana, CA', 'Pasadena, CA', 'Glendale, CA', 'Burbank, CA'],
-    'Seattle Metro': ['Seattle, WA', 'Bellevue, WA', 'Redmond, WA', 'Tacoma, WA', 
-                      'Kirkland, WA', 'Everett, WA', 'Renton, WA'],
-    'Boston Metro': ['Boston, MA', 'Cambridge, MA', 'Somerville, MA', 'Quincy, MA', 
-                     'Newton, MA', 'Brookline, MA', 'Waltham, MA'],
-    'Chicago Metro': ['Chicago, IL', 'Naperville, IL', 'Aurora, IL', 'Evanston, IL',
-                      'Schaumburg, IL', 'Joliet, IL', 'Arlington Heights, IL'],
-    'Washington DC Metro': ['Washington, DC', 'Arlington, VA', 'Alexandria, VA', 'Bethesda, MD',
-                            'Silver Spring, MD', 'Rockville, MD', 'Fairfax, VA']
-}
+# Extract state from location (e.g., "San Francisco, CA" -> "CA")
+def _extract_state(location):
+    if not isinstance(location, str):
+        return None
+    # Handle "City, ST" format
+    if ', ' in location:
+        parts = location.split(', ')
+        if len(parts) >= 2:
+            state = parts[-1].strip()
+            # Return state if it's a 2-letter code
+            if len(state) == 2 and state.isalpha():
+                return state.upper()
+    return None
 
-locations = ['All'] + sorted(df['location'].dropna().unique().tolist())
-metro_options = ['Individual City'] + list(METRO_AREAS.keys())
-
-location_type = st.sidebar.selectbox("Location Type", metro_options, index=0)
-
-if location_type == 'Individual City':
-    selected_location = st.sidebar.selectbox("Location", locations)
-    selected_metro = None
+# Add state column
+if 'location' in df.columns:
+    df['state'] = df['location'].apply(_extract_state)
 else:
-    selected_location = None
-    selected_metro = location_type
+    df['state'] = None
+
+# Get unique states for filter
+states_list = ['All'] + sorted(df['state'].dropna().unique().tolist())
+
+# State filter
+selected_state = st.sidebar.selectbox("State", states_list, index=0)
 
 # Job type filter (restricted to four options)
 allowed_job_types = ['fulltime', 'internship', 'part-time', 'contract']
@@ -410,12 +395,9 @@ selected_edu = st.sidebar.selectbox(
 # Apply filters
 filtered_df = df.copy()
 
-# Apply location filter (individual city or metro area)
-if selected_location and selected_location != 'All':
-    filtered_df = filtered_df[filtered_df['location'] == selected_location]
-elif selected_metro:
-    metro_cities = METRO_AREAS[selected_metro]
-    filtered_df = filtered_df[filtered_df['location'].isin(metro_cities)]
+# Apply state filter
+if selected_state != 'All':
+    filtered_df = filtered_df[filtered_df['state'] == selected_state]
 
 if selected_job_type != 'All':
     # Use normalized job type for reliable matching
@@ -667,6 +649,148 @@ with tab2:
             st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
     else:
         st.warning("No salary data available in filtered results")
+
+    # ==========================================
+    # ML-POWERED SALARY PREDICTION
+    # ==========================================
+    st.markdown("---")
+    st.subheader("🤖 ML-Powered Salary Prediction")
+    st.markdown("Get an estimated salary based on role, job type, experience, education, and skills.")
+    
+    # Initialize and auto-load/train salary predictor
+    if 'salary_predictor' not in st.session_state:
+        st.session_state.salary_predictor = None
+        st.session_state.salary_models_trained = False
+    
+    # Try to load existing models on first run, or auto-train if needed
+    if st.session_state.salary_predictor is None:
+        from salary_predictor import SalaryPredictor
+        st.session_state.salary_predictor = SalaryPredictor()
+        
+        # Try loading pre-trained models first
+        if st.session_state.salary_predictor.load_models():
+            st.session_state.salary_models_trained = True
+        else:
+            # Auto-train if no saved models exist
+            with st.spinner("Initializing salary prediction models (one-time setup)..."):
+                try:
+                    results = st.session_state.salary_predictor.train(df)
+                    if results:
+                        st.session_state.salary_models_trained = True
+                except Exception as e:
+                    st.warning(f"Could not initialize models: {e}")
+    
+    predictor = st.session_state.salary_predictor
+    
+    # Main prediction interface
+    if not st.session_state.salary_models_trained:
+        st.warning("Salary prediction is unavailable. Insufficient salary data in the dataset.")
+    else:
+        # Initialize session state for tracking role changes and skills
+        if 'pred_role_prev' not in st.session_state:
+            st.session_state.pred_role_prev = None
+        if 'pred_skills_selection' not in st.session_state:
+            st.session_state.pred_skills_selection = None
+        
+        # Role selection first (needed to get default skills)
+        available_roles = predictor.get_available_roles()
+        pred_role = st.selectbox(
+            "Role Category",
+            available_roles,
+            key="pred_role",
+            help="Select the type of role you're interested in"
+        )
+        
+        # Get skills for this role
+        all_skills = predictor.get_all_skills(pred_role)
+        default_skills = predictor.get_top_skills(pred_role, n=5)
+        
+        # Auto-update skills when role changes
+        if st.session_state.pred_role_prev != pred_role:
+            st.session_state.pred_role_prev = pred_role
+            st.session_state.pred_skills_selection = default_skills
+        
+        # Initialize skills selection if not set
+        if st.session_state.pred_skills_selection is None:
+            st.session_state.pred_skills_selection = default_skills
+        
+        # Filter to only valid skills for current role
+        valid_skills = [s for s in st.session_state.pred_skills_selection if s in all_skills]
+        if not valid_skills:
+            valid_skills = default_skills
+        
+        # Skills multiselect with auto-filled defaults
+        pred_skills = st.multiselect(
+            "Skills",
+            options=all_skills,
+            default=valid_skills,
+            key=f"pred_skills_{pred_role}",  # Dynamic key forces refresh on role change
+            help="Select your skills. Top 5 most impactful skills for this role are pre-selected."
+        )
+        
+        # Update session state with current selection
+        st.session_state.pred_skills_selection = pred_skills
+        
+        # Two-column layout for other inputs
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Experience slider
+            pred_experience = st.slider(
+                "Years of Experience",
+                min_value=0,
+                max_value=15,
+                value=3,
+                key="pred_experience",
+                help="Your years of relevant experience"
+            )
+            
+            # Remote checkbox
+            pred_remote = st.checkbox(
+                "Remote Position",
+                value=False,
+                key="pred_remote",
+                help="Check if this is a remote position"
+            )
+        
+        with col2:
+            # Education dropdown
+            pred_education = st.selectbox(
+                "Education Level",
+                ["Bachelor's", "Master's", "PhD"],
+                key="pred_education",
+                help="Your highest degree"
+            )
+        
+        # Predict button with result display
+        if st.button("🎯 Predict Salary", type="primary", use_container_width=True, key="predict_salary_btn"):
+            result = predictor.predict(
+                role_category=pred_role,
+                is_remote=pred_remote,
+                education_level=pred_education,
+                years_experience=pred_experience,
+                skills=pred_skills
+            )
+            
+            if result:
+                st.markdown("---")
+                
+                # Large predicted salary display
+                st.markdown(f"""
+                <div style="text-align: center; padding: 1.5rem; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 10px; margin-bottom: 1rem;">
+                    <p style="color: #888; margin: 0; font-size: 0.9rem;">Predicted Annual Salary</p>
+                    <h1 style="color: #fff; margin: 0.5rem 0; font-size: 3rem;">${result['predicted_salary']:,.0f}</h1>
+                    <p style="color: #888; margin: 0; font-size: 0.85rem;">Range: ${result['lower_bound']:,.0f} – ${result['upper_bound']:,.0f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Model details in expander
+                with st.expander("📊 Prediction Details"):
+                    st.metric("Model Used", result['model_name'])
+                    st.metric("Model Accuracy (R²)", f"{result['r2']:.2f}")
+                    st.markdown(f"**Skills used in prediction:** {', '.join(pred_skills) if pred_skills else 'None'}")
+            else:
+                st.error(f"Prediction unavailable for {pred_role}.")
 
 with tab3:
     st.subheader("Skills in Demand")
@@ -1394,15 +1518,12 @@ with tab6:
     col_a, col_b = st.columns(2)
     
     # Helper function to apply filters
-    def apply_comparison_filters(base_df, location_val, metro_val, job_type_val, remote_val, exp_val, role_val, edu_val):
+    def apply_comparison_filters(base_df, state_val, job_type_val, remote_val, exp_val, role_val, edu_val):
         temp_df = base_df.copy()
         
-        # Location filter
-        if location_val and location_val != 'All':
-            temp_df = temp_df[temp_df['location'] == location_val]
-        elif metro_val and metro_val != 'Individual City':
-            metro_cities = METRO_AREAS[metro_val]
-            temp_df = temp_df[temp_df['location'].isin(metro_cities)]
+        # State filter
+        if state_val and state_val != 'All':
+            temp_df = temp_df[temp_df['state'] == state_val]
         
         # Job type filter
         if job_type_val != 'All':
@@ -1436,14 +1557,7 @@ with tab6:
     with col_a:
         st.subheader("Filter Set A")
         
-        loc_type_a = st.selectbox("Location Type (A)", metro_options, index=0, key='loc_type_a')
-        if loc_type_a == 'Individual City':
-            loc_a = st.selectbox("Location (A)", locations, key='loc_a')
-            metro_a = None
-        else:
-            loc_a = None
-            metro_a = loc_type_a
-        
+        state_a = st.selectbox("State (A)", states_list, index=0, key='state_a')
         job_type_a = st.selectbox("Job Type (A)", job_types, index=0, key='job_type_a')
         remote_a = st.checkbox("Remote Only (A)", key='remote_a')
         exp_a = st.selectbox("Experience Level (A)", exp_levels, key='exp_a')
@@ -1454,14 +1568,7 @@ with tab6:
     with col_b:
         st.subheader("Filter Set B")
         
-        loc_type_b = st.selectbox("Location Type (B)", metro_options, index=0, key='loc_type_b')
-        if loc_type_b == 'Individual City':
-            loc_b = st.selectbox("Location (B)", locations, key='loc_b')
-            metro_b = None
-        else:
-            loc_b = None
-            metro_b = loc_type_b
-        
+        state_b = st.selectbox("State (B)", states_list, index=0, key='state_b')
         job_type_b = st.selectbox("Job Type (B)", job_types, index=0, key='job_type_b')
         remote_b = st.checkbox("Remote Only (B)", key='remote_b')
         exp_b = st.selectbox("Experience Level (B)", exp_levels, key='exp_b')
@@ -1469,8 +1576,8 @@ with tab6:
         edu_b = st.selectbox("Education (B)", edu_levels, index=0, key='edu_b')
     
     # Apply filters
-    df_a = apply_comparison_filters(df, loc_a, metro_a, job_type_a, remote_a, exp_a, role_a, edu_a)
-    df_b = apply_comparison_filters(df, loc_b, metro_b, job_type_b, remote_b, exp_b, role_b, edu_b)
+    df_a = apply_comparison_filters(df, state_a, job_type_a, remote_a, exp_a, role_a, edu_a)
+    df_b = apply_comparison_filters(df, state_b, job_type_b, remote_b, exp_b, role_b, edu_b)
     
     st.markdown("---")
     st.subheader("Comparison Metrics")
