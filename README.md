@@ -1,6 +1,6 @@
 # 📊 Job Market Dashboard
 
-A comprehensive data science job market analytics platform built with Streamlit.  Visualize job postings from multiple job boards that are updated daily, while matching opportunities against your resume using AI.
+A comprehensive data science job market analytics platform built with Streamlit.  Visualize job postings from multiple job boards that are updated daily, while matching opportunities against your resume using AI. Use the Salary Prediction Model to predict the salary of a role given details about it.
 
 **Live Demo**: [https://data-science-jobs. streamlit.app/](https://data-science-jobs.streamlit.app/)
 
